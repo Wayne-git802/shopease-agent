@@ -95,6 +95,15 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 20,
 }
 
+# ── AI Agent configuration ──────────────────────────────────────
+# LLM_MODE: "mock" (dev/test, free) | "production" (real DeepSeek)
+LLM_MODE = 'mock'
+DEEPSEEK_API_KEY = ''  # set via .env in production
+DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1'
+DEEPSEEK_MODEL = 'deepseek-chat'
+LLM_TIMEOUT_SECONDS = 30
+LLM_MAX_RETRIES = 2
+
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
