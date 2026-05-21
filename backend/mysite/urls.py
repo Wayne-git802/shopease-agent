@@ -53,6 +53,7 @@ urlpatterns = [
     path('api/products/', include('products.urls')),
     path('api/orders/', include('orders.urls')),
     path('api/admin/', include('admin_api.urls')),
+    path('api/agents/', include('agents.urls')),
 ]
 
 # Serve static files in development

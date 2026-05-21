@@ -56,6 +56,9 @@ class BaseAgent(ABC):
 
     def process(self, user_input: str, context: AgentContext) -> AgentResult:
         """Public entry point.  Handles logging + error wrapping."""
+        import time
+        t0 = time.monotonic()
+
         self.logger.log_request(
             agent_type=self.agent_type,
             trace_id=context.trace_id,
@@ -64,15 +67,18 @@ class BaseAgent(ABC):
         )
         try:
             result = self._process(user_input, context)
+            latency_ms = int((time.monotonic() - t0) * 1000)
             self.logger.log_response(
                 trace_id=context.trace_id,
                 tokens_used=result.tokens_used,
                 cache_hit=result.cache_hit,
                 status=result.status,
+                latency_ms=latency_ms,
             )
             return result
         except Exception as exc:
-            self.logger.log_error(context.trace_id, str(exc))
+            latency_ms = int((time.monotonic() - t0) * 1000)
+            self.logger.log_error(context.trace_id, str(exc), latency_ms=latency_ms)
             return AgentResult(
                 status="failed",
                 error=str(exc),
