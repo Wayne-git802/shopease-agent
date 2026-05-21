@@ -1,0 +1,168 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}All Shops - ShopEase{% endblock %}
+
+{% block content %}
+<div class="container" style="padding-top: 2rem;">
+    <!-- Page Header -->
+    <div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h1 class="page-title" id="shopsHeading">All Shops</h1>
+            <p style="color: var(--text-secondary);">{{ total_shops }} shops available</p>
+        </div>
+        <a href="javascript:void(0)" id="followedShopsLink"
+           style="text-decoration: none; font-weight: 500; font-size: 0.95rem; white-space: nowrap;"
+           onclick="toggleFollowedShops()">
+            ⭐ Followed Shops
+        </a>
+    </div>
+
+    <!-- Shop Cards Grid -->
+    {% if shops %}
+    <div class="grid grid-cols-3" style="gap: 1.5rem;" id="shopsGrid">
+        {% for shop in shops %}
+        <div class="shop-card-wrapper" data-shop-id="{{ shop.shop_id }}"
+             data-is-followed="{% if shop.shop_id in followed_shop_ids %}1{% else %}0{% endif %}">
+            <a href="/shop/{{ shop.shop_id }}/" style="text-decoration: none;">
+                <div class="card" style="padding: 1.5rem; transition: transform 0.2s, box-shadow 0.2s; cursor: pointer;"
+                     onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 25px rgba(0,0,0,0.12)';"
+                     onmouseout="this.style.transform='none'; this.style.boxShadow=''">
+                    <!-- Shop Header -->
+                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                        <div style="width: 56px; height: 56px; background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+                                    border-radius: 14px; display: flex; align-items: center; justify-content: center;
+                                    flex-shrink: 0;">
+                            <span style="font-size: 1.4rem; color: white; font-weight: bold;">{{ shop.shop_name|slice:":1" }}</span>
+                        </div>
+                        <div style="flex: 1; min-width: 0;">
+                            <h3 style="margin: 0; font-size: 1.1rem; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                {{ shop.shop_name }}
+                            </h3>
+                            <div style="display: flex; align-items: center; gap: 0.4rem; margin-top: 0.3rem; font-size: 0.85rem; color: #f5a623;">
+                                <span>&#9733;</span>
+                                <span>{{ shop.rating|default:"5.0" }}/5.0</span>
+                                <span style="color: var(--border-color); margin: 0 0.25rem;">|</span>
+                                <span style="color: var(--text-secondary);">
+                                    {{ shop.product_count }} products
+                                </span>
+                            </div>
+                        </div>
+                        <span style="color: var(--primary-color); font-size: 1.2rem;">&rsaquo;</span>
+                    </div>
+
+                    <!-- Shop Description -->
+                    {% if shop.description %}
+                    <p style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.6;
+                              margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                              overflow: hidden;">
+                        {{ shop.description }}
+                    </p>
+                    {% endif %}
+
+                    <!-- Owner info -->
+                    <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);
+                                display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem;">
+                        <span style="color: var(--text-secondary);">
+                            &#128100; {{ shop.user.display_name|default:shop.user.username }}
+                        </span>
+                        <span style="color: var(--primary-color); font-weight: 500;">
+                            Visit Shop &rarr;
+                        </span>
+                    </div>
+                </div>
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <h3>No shops available yet</h3>
+        <p>Check back later for new shops!</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+let showingFollowedOnly = false;
+{% if user.is_authenticated %}
+const isAuthenticated = true;
+{% else %}
+const isAuthenticated = false;
+{% endif %}
+
+function followShop(shopId, btn) {
+    if (!isAuthenticated) {
+        showNotification('Please login first', 'danger');
+        setTimeout(() => { window.location.href = '/users/login/?next=/shops/'; }, 1000);
+        return;
+    }
+
+    const jwtToken = localStorage.getItem('access_token');
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+
+    fetch('/api/products/shops/' + shopId + '/follow/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken || '',
+            ...(jwtToken ? {'Authorization': 'Bearer ' + jwtToken} : {})
+        }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.code === 0) {
+            const wrapper = btn.closest('.shop-card-wrapper');
+            if (data.data.is_followed) {
+                showNotification('Followed successfully');
+                btn.textContent = '✓ Following';
+                if (wrapper) wrapper.dataset.isFollowed = '1';
+            } else {
+                showNotification('Unfollowed successfully');
+                btn.textContent = '⭐ Follow';
+                if (wrapper) {
+                    wrapper.dataset.isFollowed = '0';
+                    // If viewing followed only, hide this card
+                    if (showingFollowedOnly) {
+                        wrapper.style.display = 'none';
+                    }
+                }
+            }
+        } else {
+            showNotification(data.msg || 'Operation failed', 'danger');
+        }
+    })
+    .catch(err => {
+        console.error('Follow error:', err);
+        showNotification('Operation failed', 'danger');
+    });
+}
+
+function toggleFollowedShops() {
+    if (!isAuthenticated) {
+        showNotification('Please login first', 'danger');
+        setTimeout(() => { window.location.href = '/users/login/?next=/shops/'; }, 1000);
+        return;
+    }
+
+    showingFollowedOnly = !showingFollowedOnly;
+    const link = document.getElementById('followedShopsLink');
+    const heading = document.getElementById('shopsHeading');
+    const wrappers = document.querySelectorAll('.shop-card-wrapper');
+
+    if (showingFollowedOnly) {
+        link.innerHTML = '⭐ Show All Shops';
+        heading.textContent = 'Followed Shops';
+        wrappers.forEach(w => {
+            w.style.display = w.dataset.isFollowed === '1' ? '' : 'none';
+        });
+    } else {
+        link.innerHTML = '⭐ Followed Shops';
+        heading.textContent = 'All Shops';
+        wrappers.forEach(w => {
+            w.style.display = '';
+        });
+    }
+}
+</script>
+{% endblock %}

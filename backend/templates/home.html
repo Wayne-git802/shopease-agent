@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}ShopEase - Home{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Hero Section -->
+    <section class="hero">
+        <h1>Discover <span>Amazing</span> Products</h1>
+        <p>Shop from trusted sellers with fast shipping and secure payment.</p>
+        <form action="/products/" method="get" class="hero-search-wrap">
+            <input type="text" name="search" placeholder="Search products, brands, categories..."
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();this.form.submit();}">
+            <button type="submit">Search</button>
+        </form>
+    </section>
+
+    <!-- Featured Products -->
+    <section>
+        <div class="section-header" style="display: flex; justify-content: space-between; align-items: flex-end;">
+            <div>
+                <span class="section-label">Featured</span>
+                <h2>Explore Our Products</h2>
+                <p>Find quality products from trusted sellers.</p>
+            </div>
+            <a href="/products/" class="btn btn-outline">View All &rarr;</a>
+        </div>
+        <div class="grid grid-cols-3">
+            {% for product in featured_products %}
+            <div class="product-card-modern" onclick="window.location.href='/products/{{ product.id }}/'">
+                <div class="product-image-wrap">
+                    <img src="{{ product.image }}" alt="{{ product.name }}"
+                         onerror="this.src='https://via.placeholder.com/400x400?text=No+Image'">
+                    {% if product.stock == 0 %}
+                    <span style="position:absolute;top:10px;left:10px;background:#ef4444;color:white;padding:0.2rem 0.7rem;border-radius:999px;font-size:0.7rem;font-weight:600;">Sold Out</span>
+                    {% endif %}
+                </div>
+                <div class="card-info">
+                    <span class="product-category-badge">{{ product.category.name|default:"Product" }}</span>
+                    <a href="/products/{{ product.id }}/" class="product-name-link" onclick="event.stopPropagation();">{{ product.name }}</a>
+                    <div class="product-price-row">
+                        <span class="product-price-value">¥{{ product.price }}</span>
+                    </div>
+                    <div class="product-card-actions">
+                        {% if product.stock > 0 %}
+                        <div class="actions-primary">
+                            <button class="btn-card-cart" onclick="event.stopPropagation(); addToCart({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image }}')">Add to Cart</button>
+                            <button class="btn-card-buy" onclick="event.stopPropagation(); buyNowProduct({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image }}')">Buy Now</button>
+                        </div>
+                        {% endif %}
+                        <div class="actions-secondary">
+                            <a href="/products/{{ product.id }}/" class="btn-card-detail" onclick="event.stopPropagation();">View Details</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <!-- Categories -->
+    <section style="margin-top: 4rem;">
+        <div class="section-header">
+            <span class="section-label">Categories</span>
+            <h2>Shop by Category</h2>
+            <p>Browse our wide selection of product categories.</p>
+        </div>
+        <div class="grid grid-cols-3">
+            {% for category in categories %}
+            <a href="/products/?category={{ category.id }}" style="text-decoration: none;">
+                <div class="card" style="text-align: center; padding: 2rem 1.5rem;">
+                    <h3 style="font-size: 1.05rem; margin-bottom: 0.35rem;">{{ category.name }}</h3>
+                    <p style="color: var(--text-muted); font-size: 0.85rem;">{{ category.products_count }} Products</p>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+
+    <!-- Why Choose Us -->
+    <section style="margin-top: 4rem;">
+        <div class="section-header" style="text-align: center;">
+            <span class="section-label">Why ShopEase</span>
+            <h2>Why Choose Us</h2>
+            <p>We make online shopping simple, fast, and reliable.</p>
+        </div>
+        <div class="grid grid-cols-3">
+            <div class="card" style="text-align: center; padding: 2.5rem 1.5rem;">
+                <div style="font-size: 2.5rem; margin-bottom: 1rem;">&#128666;</div>
+                <h3 style="margin-bottom: 0.5rem;">Fast Shipping</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem;">Free shipping on orders over ¥99</p>
+            </div>
+            <div class="card" style="text-align: center; padding: 2.5rem 1.5rem;">
+                <div style="font-size: 2.5rem; margin-bottom: 1rem;">&#128274;</div>
+                <h3 style="margin-bottom: 0.5rem;">Secure Payment</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem;">100% secure payment processing</p>
+            </div>
+            <div class="card" style="text-align: center; padding: 2.5rem 1.5rem;">
+                <div style="font-size: 2.5rem; margin-bottom: 1rem;">&#8617;&#65039;</div>
+                <h3 style="margin-bottom: 0.5rem;">Easy Returns</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem;">30-day hassle-free return policy</p>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function buyNowProduct(productId, name, price, image) {
+    window.location.href = `/orders/checkout/?product_id=${productId}&name=${encodeURIComponent(name)}&price=${price}&image=${encodeURIComponent(image)}&quantity=1`;
+}
+</script>
+{% endblock %}

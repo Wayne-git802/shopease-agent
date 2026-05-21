@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Login - ShopEase{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div style="max-width: 400px; margin: 4rem auto;">
+        <div class="card" style="padding: 2rem;">
+            <h1 style="text-align: center; margin-bottom: 2rem;">Login</h1>
+            
+            <div id="error-message" class="alert alert-danger" style="display: none;"></div>
+            <div id="success-message" class="alert alert-success" style="display: none;"></div>
+
+            <form id="login-form">
+                {% csrf_token %}
+                
+                <div class="form-group">
+                    <label class="form-label" for="username">Username</label>
+                    <input type="text" id="username" name="username" class="form-input" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="password">Password</label>
+                    <input type="password" id="password" name="password" class="form-input" required>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem;" id="login-btn">
+                    Login
+                </button>
+            </form>
+
+            <p style="text-align: center; margin-top: 1.5rem; color: var(--text-secondary);">
+                Don't have an account? <a href="/users/register/" style="color: var(--primary-color);">Register here</a>
+            </p>
+
+            <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
+
+            <p style="text-align: center; color: var(--text-secondary); font-size: 0.875rem;">
+                <strong>Demo Accounts:</strong><br>
+                Username: alice / Password: password123<br>
+                Username: bob / Password: password123
+            </p>
+        </div>
+    </div>
+</div>
+
+<script>
+// 检查是否是注册成功后跳转过来的
+if (new URLSearchParams(window.location.search).get('registered') === '1') {
+    const successDiv = document.getElementById('success-message');
+    successDiv.textContent = 'Registration successful! Please login to continue.';
+    successDiv.style.display = 'block';
+}
+
+// 处理表单提交
+document.getElementById('login-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    const errorDiv = document.getElementById('error-message');
+    const loginBtn = document.getElementById('login-btn');
+    
+    errorDiv.style.display = 'none';
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Logging in...';
+    
+    try {
+        console.log('Attempting login with username:', username);
+        
+        // 首先调用 JWT API 获取 token (正确路径: /api/users/token/)
+        const jwtResponse = await fetch('/api/users/token/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                'username': username,
+                'password': password
+            })
+        });
+        
+        console.log('JWT Response status:', jwtResponse.status);
+        
+        if (!jwtResponse.ok) {
+            const errorData = await jwtResponse.json().catch(() => ({}));
+            console.error('JWT Error:', errorData);
+            const errorMsg = errorData.detail || errorData.non_field_errors?.[0] || 'Invalid username or password';
+            errorDiv.textContent = errorMsg;
+            errorDiv.style.display = 'block';
+            loginBtn.disabled = false;
+            loginBtn.textContent = 'Login';
+            return;
+        }
+        
+        // 保存 JWT token
+        const jwtData = await jwtResponse.json();
+        localStorage.setItem('access_token', jwtData.access);
+        localStorage.setItem('refresh_token', jwtData.refresh);
+        
+        // 使用 Django session 登录（保持模板页面登录状态）
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        const response = await fetch('/users/login/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: new URLSearchParams({
+                'username': username,
+                'password': password
+            }),
+            credentials: 'include'  // 包含 cookie
+        });
+        
+        // 跳转到首页或之前页面
+        const redirectUrl = new URLSearchParams(window.location.search).get('next') || '/';
+        window.location.href = redirectUrl;
+    } catch (error) {
+        console.error('Login error:', error);
+        errorDiv.textContent = 'Connection error: ' + error.message;
+        errorDiv.style.display = 'block';
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Login';
+    }
+});
+</script>
+{% endblock %}

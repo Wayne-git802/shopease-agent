@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Shopping Cart - ShopEase{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="page-title">Shopping Cart</h1>
+
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem; margin-top: 2rem;">
+        <!-- Cart Items -->
+        <div id="cart-items">
+            <!-- Items will be rendered by JavaScript -->
+        </div>
+
+        <!-- Order Summary -->
+        <div>
+            <div class="card" style="padding: 1.5rem; position: sticky; top: 100px;">
+                <h3 style="margin-bottom: 1.5rem;">Order Summary</h3>
+
+                <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
+                    <span>Subtotal</span>
+                    <span id="cart-subtotal">¥0.00</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
+                    <span>Shipping</span>
+                    <span style="color: var(--success);">Free</span>
+                </div>
+                <hr style="margin: 1rem 0; border: none; border-top: 1px solid var(--border-color);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 1.5rem;">
+                    <strong>Total</strong>
+                    <strong id="cart-total" class="price">¥0.00</strong>
+                </div>
+
+                <button class="btn btn-primary" style="width: 100%; padding: 1rem; font-size: 1rem; border-radius: 10px;" onclick="openOrderModal('checkout')">
+                    Proceed to Checkout
+                </button>
+
+                <a href="/products/" class="btn btn-outline" style="width: 100%; margin-top: 1rem; text-align: center;">
+                    Continue Shopping
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

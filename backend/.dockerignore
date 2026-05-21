@@ -1,0 +1,11 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+.git
+*.sqlite3
+media
+staticfiles
+*.log
+*.tmp
+CLAUDE.md

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ShopEase - Online Store{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=20260429e">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="navbar-container">
+            <a href="/" class="logo">ShopEase</a>
+            <ul class="nav-links">
+                <li><a href="/" id="nav-home">Home</a></li>
+                <li><a href="/products/" id="nav-products">Products</a></li>
+                <li><a href="/shops/" id="nav-store">Stores</a></li>
+                <li>
+                    <a href="/cart/" class="cart-icon" id="nav-cart">
+                        Cart
+                        <span class="cart-badge" style="display: none;">0</span>
+                    </a>
+                </li>
+                {% if user.is_authenticated %}
+                    <li><a href="/orders/" id="nav-orders">My Orders</a></li>
+                    <li><a href="/profile/" id="nav-profile">Profile</a></li>
+                {% else %}
+                    <li><a href="/users/login/" id="nav-login">Login</a></li>
+                    <li><a href="/users/register/" id="nav-register">Register</a></li>
+                {% endif %}
+                {% if user.is_staff %}
+                    <li><a href="/admin/" id="nav-admin">Admin</a></li>
+                {% endif %}
+            </ul>
+        </div>
+    </nav>
+
+    <script>
+    // 高亮当前页面导航
+    (function() {
+        const path = window.location.pathname;
+        
+        // 精确匹配
+        const exactMatches = {
+            '/': 'nav-home',
+            '/products/': 'nav-products',
+            '/shops/': 'nav-store',
+            '/cart/': 'nav-cart',
+            '/orders/': 'nav-orders',
+            '/profile/': 'nav-profile',
+            '/users/login/': 'nav-login',
+            '/users/register/': 'nav-register',
+        };
+
+        // 前缀匹配
+        const prefixMatches = [
+            { prefix: '/shop/', id: 'nav-store' },
+            { prefix: '/shops/', id: 'nav-store' },
+            { prefix: '/admin/', id: 'nav-admin' },
+        ];
+        
+        let activeId = null;
+        
+        // 检查精确匹配
+        if (exactMatches[path]) {
+            activeId = exactMatches[path];
+        } else {
+            // 检查前缀匹配
+            for (const item of prefixMatches) {
+                if (path.startsWith(item.prefix)) {
+                    activeId = item.id;
+                    break;
+                }
+            }
+        }
+        
+        // 应用高亮样式
+        if (activeId) {
+            const activeLink = document.getElementById(activeId);
+            if (activeLink) {
+                activeLink.style.color = '#2563eb'; // 蓝色
+                activeLink.style.fontWeight = '600'; // 加粗
+            }
+        }
+    })();
+    </script>
+
+    <!-- Main Content -->
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    {% csrf_token %}
+
+    <!-- Global Order Modal (Buy Now / Checkout) -->
+    <div id="orderModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Confirm Order</h2>
+                <button class="modal-close" onclick="closeOrderModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="modalOrderSummary" class="modal-order-summary">
+                    <!-- Summary rendered by JS -->
+                </div>
+                <form id="orderForm" onsubmit="return false;">
+                    <div class="form-group">
+                        <label class="form-label" for="modal_address">Shipping Address *</label>
+                        <input type="text" id="modal_address" class="form-input" placeholder="Please enter your shipping address" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="modal_receiver_name">Receiver Name *</label>
+                        <input type="text" id="modal_receiver_name" class="form-input" placeholder="Receiver name" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="modal_receiver_phone">Phone Number *</label>
+                        <input type="text" id="modal_receiver_phone" class="form-input" placeholder="Phone number" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="modal_remark">Notes (Optional)</label>
+                        <textarea id="modal_remark" class="form-input" placeholder="Any remarks for this order"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeOrderModal()">Cancel</button>
+                <button class="btn btn-primary" id="modalSubmitBtn" onclick="submitOrder()">Place Order</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Review Modal -->
+    <div id="reviewModal" class="modal-overlay">
+        <div class="modal-content" style="width: 480px;">
+            <div class="modal-header">
+                <h2>Write a Review</h2>
+                <button class="modal-close" onclick="closeReviewModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="reviewProductInfo" style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                    <img id="reviewProductImage" src="" style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px;">
+                    <span id="reviewProductName" style="font-weight: 500;"></span>
+                </div>
+                <div style="margin-bottom: 1.5rem; text-align: center;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Rating</label>
+                    <div id="reviewStars" style="font-size: 2rem; cursor: pointer; user-select: none;">
+                        <span data-star="1" class="review-star">☆</span>
+                        <span data-star="2" class="review-star">☆</span>
+                        <span data-star="3" class="review-star">☆</span>
+                        <span data-star="4" class="review-star">☆</span>
+                        <span data-star="5" class="review-star">☆</span>
+                    </div>
+                    <input type="hidden" id="reviewRating" value="0">
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Your Review</label>
+                    <textarea id="reviewComment" class="form-input" rows="4" placeholder="Share your thoughts about this product..." style="resize: vertical;"></textarea>
+                </div>
+                <input type="hidden" id="reviewProductId" value="">
+                <input type="hidden" id="reviewOrderItemId" value="">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeReviewModal()">Cancel</button>
+                <button class="btn btn-primary" id="reviewSubmitBtn" onclick="submitReview()">Submit Review</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div>
+                <h3>ShopEase</h3>
+                <p>Your trusted online shopping destination.</p>
+            </div>
+            <div>
+                <h3>Quick Links</h3>
+                <ul style="list-style: none;">
+                    <li><a href="/products/">All Products</a></li>
+                    <li><a href="/orders/">My Orders</a></li>
+                    <li><a href="/cart/">Shopping Cart</a></li>
+                </ul>
+            </div>
+            <div>
+                <h3>Contact</h3>
+                <p>Email: support@shopease.com</p>
+                <p>Phone: +86 400-123-4567</p>
+            </div>
+        </div>
+        <div style="text-align: center; margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #334155;">
+            <p>&copy; 2026 ShopEase. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src="/static/js/cart.js?v=20260429c"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}My Profile - ShopEase{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="page-title">My Profile</h1>
+
+    <div style="display: grid; grid-template-columns: 300px 1fr; gap: 2rem; margin-top: 2rem;">
+        <!-- Profile Sidebar -->
+        <div>
+            <div class="card" style="padding: 2rem; text-align: center;">
+                <div style="width: 100px; height: 100px; border-radius: 50%; background: var(--primary-color); margin: 0 auto 1rem; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; color: white;">
+                    {{ user.username|slice:":1"|upper }}
+                </div>
+                <h3>{{ user.username }}</h3>
+                <p style="color: var(--text-secondary);">{{ user.email }}</p>
+                
+                {% if user.is_staff %}
+                <span class="badge badge-primary" style="margin-top: 0.5rem;">Admin</span>
+                {% else %}
+                <span class="badge badge-success" style="margin-top: 0.5rem;">Member</span>
+                {% endif %}
+            </div>
+
+            <div class="card" style="padding: 1.5rem; margin-top: 1.5rem;">
+                <ul style="list-style: none;">
+                    <li style="margin-bottom: 1rem;">
+                        <a href="/profile/" style="color: var(--primary-color); text-decoration: none; font-weight: 500;">Profile Settings</a>
+                    </li>
+                    <li style="margin-bottom: 1rem;">
+                        <a href="/orders/" style="color: var(--text-secondary); text-decoration: none;">My Orders</a>
+                    </li>
+                    {% if user.is_staff %}
+                    <li style="margin-bottom: 1rem;">
+                        <a href="/admin/" style="color: var(--text-secondary); text-decoration: none;">Admin Panel</a>
+                    </li>
+                    {% endif %}
+                    <li>
+                        <a href="/users/logout/" style="color: var(--danger); text-decoration: none;">Logout</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Profile Content -->
+        <div>
+            {% if success %}
+            <div class="alert alert-success">Profile updated successfully!</div>
+            {% endif %}
+
+            <div class="card" style="padding: 2rem;">
+                <h3 style="margin-bottom: 1.5rem;">Profile Information</h3>
+                
+                <form method="post">
+                    {% csrf_token %}
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                        <div class="form-group">
+                            <label class="form-label">Username</label>
+                            <input type="text" class="form-input" value="{{ user.username }}" readonly>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Email</label>
+                            <input type="email" name="email" class="form-input" value="{{ user.email }}">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">First Name</label>
+                            <input type="text" name="first_name" class="form-input" value="{{ user.first_name }}">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Last Name</label>
+                            <input type="text" name="last_name" class="form-input" value="{{ user.last_name }}">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Phone</label>
+                            <input type="text" name="phone" class="form-input" value="{{ user.phone|default:'' }}">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Address</label>
+                            <input type="text" name="address" class="form-input" value="{{ user.address|default:'' }}">
+                        </div>
+                    </div>
+
+                    <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
+
+                    <h3 style="margin-bottom: 1.5rem;">Change Password</h3>
+                    
+                    <div class="form-group">
+                        <label class="form-label">New Password</label>
+                        <input type="password" name="new_password" class="form-input" placeholder="Leave blank to keep current password">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </form>
+            </div>
+
+            <!-- Order Statistics -->
+            <div class="card" style="padding: 2rem; margin-top: 2rem;">
+                <h3 style="margin-bottom: 1.5rem;">Order Statistics</h3>
+                <div class="grid grid-cols-3">
+                    <div style="text-align: center; padding: 1.5rem;">
+                        <p style="font-size: 2rem; font-weight: bold; color: var(--primary-color);">{{ order_stats.total }}</p>
+                        <p style="color: var(--text-secondary);">Total Orders</p>
+                    </div>
+                    <div style="text-align: center; padding: 1.5rem;">
+                        <p style="font-size: 2rem; font-weight: bold; color: var(--success);">{{ order_stats.completed }}</p>
+                        <p style="color: var(--text-secondary);">Completed</p>
+                    </div>
+                    <div style="text-align: center; padding: 1.5rem;">
+                        <p style="font-size: 2rem; font-weight: bold; color: var(--danger);">¥{{ order_stats.total_spent }}</p>
+                        <p style="color: var(--text-secondary);">Total Spent</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Products - ShopEase{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Page Header with Search & Sort -->
+    <div class="page-header" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+        <div>
+            <h1 class="page-title">{% if search_query %}Search Results{% else %}All Products{% endif %}</h1>
+            <p style="color: var(--text-secondary);">{{ products.paginator.count }} products found{% if search_query %} for "{{ search_query }}"{% endif %}</p>
+        </div>
+
+        <!-- Search Box -->
+        <form method="get" action="/products/" style="display: flex; gap: 0.5rem;" id="searchForm">
+            {% if selected_category %}
+            <input type="hidden" name="category" value="{{ selected_category }}">
+            {% endif %}
+            {% if sort_by and sort_by != 'default' %}
+            <input type="hidden" name="sort" value="{{ sort_by }}">
+            {% endif %}
+            <input type="text" name="search" class="form-input" placeholder="Search products..." 
+                   value="{{ search_query }}" style="min-width: 220px; padding: 0.6rem 1rem;"
+                   onkeydown="if(event.key==='Enter') { event.preventDefault(); this.form.submit(); }">
+            <button type="submit" class="btn btn-primary" style="padding: 0.6rem 1.2rem;">&#128269;</button>
+            {% if search_query or sort_by != 'default' %}
+            <a href="/products/{% if selected_category %}?category={{ selected_category }}{% endif %}" class="btn btn-outline">Clear</a>
+            {% endif %}
+        </form>
+    </div>
+
+    <div style="display: flex; gap: 2rem;">
+        <!-- Sidebar -->
+        <aside style="width: 250px; flex-shrink: 0;">
+            <div class="card" style="padding: 1.5rem;">
+                <h3 style="margin-bottom: 1rem;">Categories</h3>
+                <ul style="list-style: none;">
+                    <li style="margin-bottom: 0.5rem;">
+                        <a href="/products/{% if search_query %}?search={{ search_query|urlencode }}{% if sort_by != 'default' %}&sort={{ sort_by }}{% endif %}{% endif %}" style="color: {% if not selected_category %}var(--primary-color){% else %}var(--text-secondary){% endif %}; text-decoration: none;">
+                            All Products
+                        </a>
+                    </li>
+                    {% for category in categories %}
+                    <li style="margin-bottom: 0.5rem;">
+                        <a href="/products/?category={{ category.id }}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}{% if sort_by != 'default' %}&sort={{ sort_by }}{% endif %}" style="color: {% if selected_category == category.id %}var(--primary-color){% else %}var(--text-secondary){% endif %}; text-decoration: none;">
+                            {{ category.name }}
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </aside>
+
+        <!-- Product Grid -->
+        <div style="flex: 1;">
+            <!-- Sort Bar -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;
+                        padding: 0.75rem 1rem; background: var(--background); border-radius: 8px;">
+                <span style="color: var(--text-secondary); font-size: 0.875rem;">Sort by:</span>
+                <div style="display: flex; gap: 0.5rem;">
+                    <a href="?{% if selected_category %}category={{ selected_category }}&amp;{% endif %}{% if search_query %}search={{ search_query|urlencode }}&amp;{% endif %}{% for p in products.paginator.page_range %}{% if products.number == p %}page={{ p }}&amp;{% endif %}{% endfor %}"
+                       class="btn btn-sm {% if sort_by == 'default' %}btn-primary{% else %}btn-outline{% endif %}">
+                        Default
+                    </a>
+                    <a href="?{% if selected_category %}category={{ selected_category }}&amp;{% endif %}{% if search_query %}search={{ search_query|urlencode }}&amp;{% endif %}sort=price_asc"
+                       class="btn btn-sm {% if sort_by == 'price_asc' %}btn-primary{% else %}btn-outline{% endif %}">
+                        Price &#8593;
+                    </a>
+                    <a href="?{% if selected_category %}category={{ selected_category }}&amp;{% endif %}{% if search_query %}search={{ search_query|urlencode }}&amp;{% endif %}sort=price_desc"
+                       class="btn btn-sm {% if sort_by == 'price_desc' %}btn-primary{% else %}btn-outline{% endif %}">
+                        Price &#8595;
+                    </a>
+                </div>
+            </div>
+
+            {% if products %}
+            <div class="grid grid-cols-3">
+                {% for product in products %}
+                <div class="product-card-modern" onclick="window.location.href='/products/{{ product.id }}/'">
+                    <div class="product-image-wrap">
+                        <img src="{{ product.image }}" alt="{{ product.name }}"
+                             onerror="this.src='https://via.placeholder.com/400x400?text=No+Image'">
+                        {% if product.stock == 0 %}
+                        <span style="position:absolute;top:10px;left:10px;background:#ef4444;color:white;padding:0.2rem 0.7rem;border-radius:999px;font-size:0.75rem;font-weight:600;">Sold Out</span>
+                        {% endif %}
+                    </div>
+                    <div class="card-info">
+                        <span class="product-category-badge">{{ product.category.name|default:"Uncategorized" }}</span>
+                        <a href="/products/{{ product.id }}/" class="product-name-link" onclick="event.stopPropagation();">{{ product.name }}</a>
+                        <div class="product-price-row">
+                            <span class="product-price-value">¥{{ product.price }}</span>
+                        </div>
+                        <div class="product-card-actions">
+                            {% if product.stock > 0 %}
+                            <div class="actions-primary">
+                                <button class="btn-card-cart" onclick="event.stopPropagation(); addToCart({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image }}')">Add to Cart</button>
+                                <button class="btn-card-buy" onclick="event.stopPropagation(); buyNowProduct({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image }}')">Buy Now</button>
+                            </div>
+                            {% endif %}
+                            <div class="actions-secondary">
+                                <a href="/products/{{ product.id }}/" class="btn-card-detail" onclick="event.stopPropagation();">View Details</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Pagination -->
+            {% if products.has_other_pages %}
+            <div style="display: flex; justify-content: center; gap: 0.5rem; margin-top: 2rem;">
+                {% if products.has_previous %}
+                    <a href="?page=1{% if selected_category %}&category={{ selected_category }}{% endif %}{% if sort_by != 'default' %}&sort={{ sort_by }}{% endif %}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}" class="btn btn-outline">&laquo; First</a>
+                    <a href="?page={{ products.previous_page_number }}{% if selected_category %}&category={{ selected_category }}{% endif %}{% if sort_by != 'default' %}&sort={{ sort_by }}{% endif %}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}" class="btn btn-outline">Prev</a>
+                {% endif %}
+                
+                <span class="btn" style="background: var(--background);">Page {{ products.number }} of {{ products.paginator.num_pages }}</span>
+                
+                {% if products.has_next %}
+                    <a href="?page={{ products.next_page_number }}{% if selected_category %}&category={{ selected_category }}{% endif %}{% if sort_by != 'default' %}&sort={{ sort_by }}{% endif %}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}" class="btn btn-outline">Next</a>
+                    <a href="?page={{ products.paginator.num_pages }}{% if selected_category %}&category={{ selected_category }}{% endif %}{% if sort_by != 'default' %}&sort={{ sort_by }}{% endif %}{% if search_query %}&search={{ search_query|urlencode }}{% endif %}" class="btn btn-outline">Last &raquo;</a>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            {% else %}
+            <div class="empty-state">
+                <h3>No products found</h3>
+                <p>Try adjusting your filters or browse all products.</p>
+                <a href="/products/" class="btn btn-primary">View All Products</a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function buyNowProduct(productId, name, price, image) {
+    // 直接跳转到结算页面
+    window.location.href = `/orders/checkout/?product_id=${productId}&name=${encodeURIComponent(name)}&price=${price}&image=${encodeURIComponent(image)}&quantity=1`;
+}
+</script>
+{% endblock %}

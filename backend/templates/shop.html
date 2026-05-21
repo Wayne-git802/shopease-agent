@@ -1,0 +1,179 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ shop.shop_name }} - ShopEase{% endblock %}
+
+{% block content %}
+<div class="container" style="padding-top: 2rem;">
+    <!-- Shop Header -->
+    <div class="card" style="padding: 2rem; margin-bottom: 2rem;">
+        <div style="display: flex; align-items: center; gap: 2rem; flex-wrap: wrap;">
+            <!-- Shop Avatar -->
+            <div style="width: 100px; height: 100px; background: linear-gradient(135deg, var(--primary-color), var(--secondary-color)); border-radius: 16px; display: flex; align-items: center; justify-content: center;">
+                <span style="font-size: 2.5rem; color: white; font-weight: bold;">{{ shop.shop_name|slice:":1" }}</span>
+            </div>
+
+            <div style="flex: 1; min-width: 200px;">
+                <h1 style="margin-bottom: 0.5rem;">{{ shop.shop_name }}</h1>
+                <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                    {% if shop.description %}{{ shop.description }}{% else %}Welcome to our shop!{% endif %}
+                </p>
+                <div style="display: flex; gap: 2rem; font-size: 0.875rem; flex-wrap: wrap;">
+                    <span style="color: #f5a623;">
+                        ⭐ Rating: {{ shop.rating|default:"5.0" }}
+                    </span>
+                    <span style="color: var(--text-secondary);">
+                        📦 Products: {{ total_products }}
+                    </span>
+                </div>
+            </div>
+
+            <div style="text-align: right;">
+                {% if is_followed %}
+                <button class="btn btn-outline" id="followBtn" onclick="followShop()" style="white-space: nowrap;">✓ Following</button>
+                {% else %}
+                <button class="btn btn-outline" id="followBtn" onclick="followShop()" style="white-space: nowrap;">⭐ Follow Store</button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter/Sort -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 0.5rem;">
+        <h2 style="font-size: 1.25rem;">Store Products</h2>
+        <div>
+            <select class="form-input" style="width: auto; padding: 0.5rem 1rem;" onchange="sortProducts(this.value)">
+                <option value="">Default</option>
+                <option value="price_asc">Price: Low to High</option>
+                <option value="price_desc">Price: High to Low</option>
+                <option value="newest">Newest</option>
+            </select>
+        </div>
+    </div>
+    
+    <!-- Products Grid -->
+    {% if products %}
+        <div class="products-grid">
+            {% for product in products %}
+            <div class="product-card-modern">
+                <a href="/products/{{ product.id }}/">
+                    <div class="product-image-wrap">
+                        <img src="{{ product.image }}" alt="{{ product.name }}"
+                             onerror="this.src='https://picsum.photos/seed/{{ product.id }}/400/400'">
+                        {% if product.stock == 0 %}
+                        <span style="position:absolute;top:10px;left:10px;background:#ef4444;color:white;padding:0.2rem 0.7rem;border-radius:999px;font-size:0.75rem;font-weight:600;">Sold Out</span>
+                        {% endif %}
+                    </div>
+                </a>
+                <div class="card-info">
+                    <span class="product-category-badge">{{ product.category.name|default:"Product" }}</span>
+                    <a href="/products/{{ product.id }}/" class="product-name-link">{{ product.name }}</a>
+                    <div class="product-price-row" style="margin-top:auto;margin-bottom:0.6rem;">
+                        <span class="product-price-value">¥{{ product.price }}</span>
+                    </div>
+                    <div class="product-card-actions">
+                        {% if product.stock > 0 %}
+                        <div class="actions-primary">
+                            <button class="btn-card-cart" onclick="addToCart({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image|escapejs }}')">Add to Cart</button>
+                            <button class="btn-card-buy" onclick="buyNow({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image|escapejs }}')">Buy Now</button>
+                        </div>
+                        {% endif %}
+                        <div class="actions-secondary">
+                            <a href="/products/{{ product.id }}/" class="btn-card-detail">View Details</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <!-- Pagination -->
+        {% if products.has_other_pages %}
+        <div class="pagination" style="margin-top: 3rem; justify-content: center;">
+            {% if products.has_previous %}
+                <a href="?page=1" class="page-link">«</a>
+                <a href="?page={{ products.previous_page_number }}" class="page-link">‹</a>
+            {% endif %}
+            
+            {% for num in products.paginator.page_range %}
+                {% if products.number == num %}
+                    <span class="page-link active">{{ num }}</span>
+                {% elif num > products.number|add:'-3' and num < products.number|add:'3' %}
+                    <a href="?page={{ num }}" class="page-link">{{ num }}</a>
+                {% endif %}
+            {% endfor %}
+            
+            {% if products.has_next %}
+                <a href="?page={{ products.next_page_number }}" class="page-link">›</a>
+                <a href="?page={{ products.paginator.num_pages }}" class="page-link">»</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="100" height="100">
+                <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"></path>
+                <line x1="7" y1="7" x2="7.01" y2="7"></line>
+            </svg>
+            <h3>No products in this store yet</h3>
+            <p>Check back later for new arrivals!</p>
+            <a href="/products/" class="btn btn-primary">Browse All Products</a>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+function followShop() {
+    {% if not user.is_authenticated %}
+    showNotification('Please login first', 'danger');
+    setTimeout(() => { window.location.href = '/users/login/?next=/shop/{{ shop.shop_id }}/'; }, 1000);
+    return;
+    {% endif %}
+
+    const jwtToken = localStorage.getItem('access_token');
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+
+    fetch('/api/products/shops/{{ shop.shop_id }}/follow/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken || '',
+            ...(jwtToken ? {'Authorization': 'Bearer ' + jwtToken} : {})
+        }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.code === 0) {
+            const btn = document.getElementById('followBtn');
+            if (data.data.is_followed) {
+                showNotification('Followed successfully');
+                btn.textContent = '✓ Following';
+            } else {
+                showNotification('Unfollowed successfully');
+                btn.textContent = '⭐ Follow Store';
+            }
+        } else {
+            showNotification(data.msg || 'Operation failed', 'danger');
+        }
+    })
+    .catch(err => {
+        console.error('Follow error:', err);
+        showNotification('Operation failed', 'danger');
+    });
+}
+
+function buyNow(productId, name, price, image) {
+    window.location.href = `/orders/checkout/?product_id=${productId}&name=${encodeURIComponent(name)}&price=${price}&image=${encodeURIComponent(image)}&quantity=1`;
+}
+
+function sortProducts(sortType) {
+    const url = new URL(window.location);
+    if (sortType) {
+        url.searchParams.set('sort', sortType);
+    } else {
+        url.searchParams.delete('sort');
+    }
+    window.location.href = url.toString();
+}
+</script>
+{% endblock %}
