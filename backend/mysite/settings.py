@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     'products',
     'orders',
     'admin_api',
+    'agents',
 ]
 
 MIDDLEWARE = [
