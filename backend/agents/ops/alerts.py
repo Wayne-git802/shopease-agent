@@ -1,17 +1,17 @@
 """Ops alert routing — store, route, and digest alerts.
 
 Alert routing rules (from ARCHITECTURE.md):
-    🔴 CRITICAL → instant push via Hermes gateway (WeChat/Feishu)
+CRITICAL -> instant push via messaging gateway (WeChat/Feishu)
                    + store in MySQL + dashboard red badge
     🟡 WARNING  → store in MySQL + dashboard display
                    + daily WeChat digest summary
     🟢 INFO     → store in MySQL only (no push)
 
 Integration:
-    The Hermes gateway push is done via a callback mechanism:
+    The gateway push is done via a callback mechanism:
     - `set_push_callback(fn)` registers a function that takes an alert dict
       and pushes it to the messaging channel.
-    - In the Django app, this callback can use Hermes's REST API or
+    - In the Django app, this callback can use the gateway's REST API or
       a shared channel.
     - Without a callback, alerts are stored in DB only (safe fallback).
 """

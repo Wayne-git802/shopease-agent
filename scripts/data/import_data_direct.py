@@ -7,7 +7,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'mysite.settings')
 import django; django.setup()
 from django.db import connection
 
-DATA = r'C:\Users\admin\Desktop\ShopEase\data_new'
+.
 BATCH = 1000
 
 def read_csv(fn):

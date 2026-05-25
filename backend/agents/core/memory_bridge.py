@@ -1,24 +1,24 @@
-"""Memory Bridge — long-term cross-project user memory via Hermes state.db.
+"""Memory Bridge — long-term user memory via local SQLite.
 
 Architecture:
     Short-term  → AgentConversation (MySQL)
     Medium-term → UserPreference (MySQL)
-    Long-term   → Hermes Memory (SQLite via this bridge)
+    Long-term   → MemoryBridge (SQLite, local file)
 
-This module reads/writes to Hermes's state.db (SQLite), providing
-cross-project persistent memory that survives project changes.
+Self-contained persistent memory for ShopEase agents, independent
+of any external framework.
 
-The bridge creates its own table inside state.db:
+The bridge creates its own table:
     agent_memory(key TEXT PK, value TEXT, source_agent TEXT,
                  confidence REAL, created_at TEXT, updated_at TEXT)
 
 Usage:
     bridge = MemoryBridge()
-    bridge.set('user:1:preferred_color', '红色', source_agent='customer_service')
+    bridge.set('user:1:preferred_color', 'red', source_agent='customer_service')
     color = bridge.get('user:1:preferred_color')
 
 Graceful degradation:
-    If state.db is unavailable → in-memory fallback (session-only)
+    If DB file is unavailable → in-memory fallback (session-only)
 """
 
 import json
@@ -27,23 +27,17 @@ import os
 import sqlite3
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 # ── Configuration ───────────────────────────────────────────────
 
-# Path to Hermes state.db
-# On Windows: ~/AppData/Local/hermes/state.db
-# On Linux/macOS: ~/.hermes/state.db
-_HERMES_HOME = os.environ.get(
-    'HERMES_HOME',
-    str(Path.home() / 'AppData' / 'Local' / 'hermes')
-)
-DEFAULT_DB_PATH = os.path.join(_HERMES_HOME, 'state.db')
+# Path to local SQLite memory file (project-relative, no external deps)
+_MEMORY_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
+DEFAULT_DB_PATH = os.path.join(_MEMORY_DIR, 'memory.db')
 
-# Table name inside state.db
+# Table name
 TABLE_NAME = 'agent_memory'
 
 # DDL
@@ -60,7 +54,7 @@ CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
 
 
 class MemoryBridge:
-    """Bridge to Hermes long-term memory (SQLite).
+    """Bridge to long-term memory (SQLite).
 
     Thread-safe.  Falls back to in-memory dict if DB is unavailable.
     """

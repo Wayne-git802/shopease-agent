@@ -1,5 +1,5 @@
 @echo off
-cd /d C:\Users\admin\Desktop\shop_agent\backend
+..\\..\\backend
 
 echo ================================
 echo   ShopEase Server Manager

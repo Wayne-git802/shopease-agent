@@ -58,7 +58,7 @@ DATABASES = {
         'ENGINE': os.environ.get('DB_ENGINE', 'django.db.backends.mysql'),
         'NAME': os.environ.get('DB_NAME', 'dmbs_project'),
         'USER': os.environ.get('DB_USER', 'root'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', 'shopeease123'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
         'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
         'PORT': os.environ.get('DB_PORT', '3306'),
         'OPTIONS': {
@@ -100,7 +100,7 @@ REST_FRAMEWORK = {
 # ── AI Agent configuration ──────────────────────────────────────
 # LLM_MODE: "mock" (dev/test, free) | "production" (real DeepSeek)
 LLM_MODE = 'production'
-DEEPSEEK_API_KEY = 'sk-775951309dd3404c80c0dac5a4fa14ae'
+DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
 DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1'
 DEEPSEEK_MODEL = 'deepseek-chat'
 LLM_TIMEOUT_SECONDS = 30

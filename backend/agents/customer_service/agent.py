@@ -3,7 +3,7 @@
 Architecture flow:
     1. Semantic cache check (tier 1 — 0 token cost if hit)
     2. Load layered prompt (tier 2 — base: 200 tok, full on demand)
-    3. Inject user preferences (MySQL UserPreference + Hermes MemoryBridge)
+    3. Inject user preferences (MySQL UserPreference + MemoryBridge)
     4. Call LLM with tools (product search, order lookup, return policy)
     5. Stream response via SSE (tier 3 — context compression after 6 rounds)
     6. Cache the Q&A pair for future reuse
@@ -185,7 +185,7 @@ class CustomerServiceAgent(BaseAgent):
     # ── preferences ─────────────────────────────────────────────
 
     def _load_preferences(self, user_id: int) -> dict:
-        """Load user preferences from MySQL + Hermes Memory."""
+        """Load user preferences from MySQL + MemoryBridge."""
         prefs = {}
 
         # Medium-term: MySQL UserPreference
@@ -196,10 +196,10 @@ class CustomerServiceAgent(BaseAgent):
         except Exception:
             pass
 
-        # Long-term: Hermes Memory (cross-project)
+        # Long-term: MemoryBridge (cross-session persistence)
         try:
-            hermes_prefs = self._memory.get_user_preferences(user_id)
-            prefs.update(hermes_prefs)  # Hermes overrides MySQL
+            bridge_prefs = self._memory.get_user_preferences(user_id)
+            prefs.update(bridge_prefs)
         except Exception:
             pass
 
@@ -232,7 +232,7 @@ class CustomerServiceAgent(BaseAgent):
                             'confidence': 0.6,
                         },
                     )
-                    # Also store in Hermes long-term memory
+                    # Also store in long-term memory
                     self._memory.set_user_preference(
                         user_id, pref_key, 'true',
                         source_agent=self.agent_type, confidence=0.6,
