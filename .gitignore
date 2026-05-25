@@ -25,3 +25,4 @@ backend/data/faiss_id_map.json
 CLAUDE.md
 *.tmp
 *.bak
+.env
