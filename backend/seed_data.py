@@ -60,7 +60,6 @@ def product(name, cat, seller, store, price, stock, image):
         defaults={
             'description': f'{name} for ShopEase inventory demo.',
             'price': Decimal(str(price)),
-            'stock': stock,
             'image': image,
             'category': cat,
             'seller': seller,

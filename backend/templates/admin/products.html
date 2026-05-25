@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}商品审核 - ShopEase Admin{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/admin.css">
+{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <div class="admin-banner">
+        <h1 class="admin-title">商品审核</h1>
+        <div class="admin-breadcrumb">
+            <a href="/manage/">Dashboard</a> / 商品审核
+        </div>
+    </div>
+
+    <div class="section-card">
+        <div class="filter-bar">
+            <label>状态筛选:</label>
+            <select id="statusFilter" onchange="filterStatus()">
+                <option value="" {% if not status_filter %}selected{% endif %}>全部</option>
+                {% for val, label in status_choices %}
+                <option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>商品名称</th>
+                    <th>卖家</th>
+                    <th>分类</th>
+                    <th>价格</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in products %}
+                <tr>
+                    <td>{{ p.id }}</td>
+                    <td>{{ p.name }}</td>
+                    <td>{{ p.seller.display_name|default:p.seller.username }}</td>
+                    <td>{{ p.category.name|default:"-" }}</td>
+                    <td>&yen;{{ p.price }}</td>
+                    <td>
+                        <span class="status-tag status-{{ p.status }}">
+                            {{ p.get_status_display }}
+                        </span>
+                    </td>
+                    <td>
+                        <button class="btn-toggle" onclick="toggleProduct({{ p.id }}, this)" data-status="{{ p.status }}">
+                            {% if p.status == 'suspended' %}上架{% else %}下架{% endif %}
+                        </button>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="7" class="text-muted">暂无商品</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% include "admin/includes/pagination.html" with page_obj=products %}
+    </div>
+</div>
+
+<script>
+function filterStatus() {
+    var val = document.getElementById('statusFilter').value;
+    if (val) {
+        window.location.href = '/manage/products/?status=' + val;
+    } else {
+        window.location.href = '/manage/products/';
+    }
+}
+
+function toggleProduct(productId, btn) {
+    var csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    fetch('/manage/api/products/' + productId + '/toggle-status/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrf }
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) {
+            btn.textContent = d.new_status === 'Suspended' ? '上架' : '下架';
+            btn.setAttribute('data-status', d.new_status === 'Suspended' ? 'suspended' : 'available');
+            // Update status tag
+            var td = btn.parentElement.previousElementSibling;
+            var tag = td.querySelector('.status-tag');
+            tag.textContent = d.new_status;
+            tag.className = 'status-tag status-' + (d.new_status === 'Suspended' ? 'suspended' : 'available');
+        }
+    });
+}
+</script>
+{% endblock %}

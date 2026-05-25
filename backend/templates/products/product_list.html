@@ -79,8 +79,7 @@
                 {% for product in products %}
                 <div class="product-card-modern" onclick="window.location.href='/products/{{ product.id }}/'">
                     <div class="product-image-wrap">
-                        <img src="{{ product.image }}" alt="{{ product.name }}"
-                             onerror="this.src='https://via.placeholder.com/400x400?text=No+Image'">
+                        <img src="{{ product.get_image_url }}" alt="{{ product.name }}">
                         {% if product.stock == 0 %}
                         <span style="position:absolute;top:10px;left:10px;background:#ef4444;color:white;padding:0.2rem 0.7rem;border-radius:999px;font-size:0.75rem;font-weight:600;">Sold Out</span>
                         {% endif %}
@@ -94,8 +93,8 @@
                         <div class="product-card-actions">
                             {% if product.stock > 0 %}
                             <div class="actions-primary">
-                                <button class="btn-card-cart" onclick="event.stopPropagation(); addToCart({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image }}')">Add to Cart</button>
-                                <button class="btn-card-buy" onclick="event.stopPropagation(); buyNowProduct({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image }}')">Buy Now</button>
+                                <button class="btn-card-cart" onclick="event.stopPropagation(); addToCart({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.get_image_url }}')">Add to Cart</button>
+                                <button class="btn-card-buy" onclick="event.stopPropagation(); buyNowProduct({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.get_image_url }}')">Buy Now</button>
                             </div>
                             {% endif %}
                             <div class="actions-secondary">

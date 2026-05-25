@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}AI Assistant - ShopEase{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/ai.css">
+{% endblock %}
+
+{% block content %}
+<div class="container" style="padding-top: 2rem;">
+    <h1 class="ai-page-title">🤖 AI 客服助手</h1>
+    <p style="color: var(--text-muted); margin-bottom: 1.5rem;">智能客服随时为您解答商品咨询、订单查询等问题</p>
+
+    <div class="ai-chat-container">
+        <div class="ai-chat-messages" id="chatMessages">
+            <div class="ai-empty">👋 你好！有什么可以帮你的？</div>
+        </div>
+        <div class="ai-chat-input-row">
+            <input type="text" id="chatInput" placeholder="输入你的问题..."
+                   onkeydown="if(event.key==='Enter')sendMessage()">
+            <button id="sendBtn" onclick="sendMessage()">发送</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const SESSION_ID = localStorage.getItem('ai_session_id') || (function(){
+    const id = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    localStorage.setItem('ai_session_id', id);
+    return id;
+})();
+
+function getHeaders() {
+    const h = {'Content-Type': 'application/json'};
+    const token = localStorage.getItem('access_token');
+    if (token) h['Authorization'] = 'Bearer ' + token;
+    return h;
+}
+
+function addMessage(role, text) {
+    const msgs = document.getElementById('chatMessages');
+    if (msgs.querySelector('.ai-empty')) msgs.innerHTML = '';
+    const div = document.createElement('div');
+    div.className = 'ai-chat-msg ' + role;
+    div.innerHTML = text.replace(/\n/g, '<br>');
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+}
+
+async function sendMessage() {
+    const input = document.getElementById('chatInput');
+    const btn = document.getElementById('sendBtn');
+    const text = input.value.trim();
+    if (!text) return;
+
+    addMessage('user', text);
+    input.value = '';
+    btn.disabled = true;
+
+    try {
+        const resp = await fetch('/api/agents/ai/', {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({message: text, session_id: SESSION_ID, query_type: 'chat'})
+        });
+        const data = await resp.json();
+        if (data.reply) {
+            addMessage('assistant', data.reply);
+        } else if (data.error) {
+            addMessage('assistant', '❌ ' + data.error);
+        } else {
+            addMessage('assistant', JSON.stringify(data));
+        }
+    } catch(e) {
+        addMessage('assistant', '❌ 网络错误，请稍后重试');
+    }
+    btn.disabled = false;
+    input.focus();
+}
+
+// Load history on page load
+(async function(){
+    try {
+        const resp = await fetch('/api/agents/chat/history/?session_id=' + SESSION_ID, {
+            headers: getHeaders()
+        });
+        const data = await resp.json();
+        if (data.messages && data.messages.length > 0) {
+            const msgs = document.getElementById('chatMessages');
+            msgs.innerHTML = '';
+            data.messages.forEach(m => addMessage(m.role, m.content));
+        }
+    } catch(e) { /* silent */ }
+})();
+</script>
+{% endblock %}

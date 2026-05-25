@@ -58,8 +58,7 @@
             <div class="product-card-modern">
                 <a href="/products/{{ product.id }}/">
                     <div class="product-image-wrap">
-                        <img src="{{ product.image }}" alt="{{ product.name }}"
-                             onerror="this.src='https://picsum.photos/seed/{{ product.id }}/400/400'">
+                        <img src="{{ product.get_image_url }}" alt="{{ product.name }}">
                         {% if product.stock == 0 %}
                         <span style="position:absolute;top:10px;left:10px;background:#ef4444;color:white;padding:0.2rem 0.7rem;border-radius:999px;font-size:0.75rem;font-weight:600;">Sold Out</span>
                         {% endif %}
@@ -74,8 +73,8 @@
                     <div class="product-card-actions">
                         {% if product.stock > 0 %}
                         <div class="actions-primary">
-                            <button class="btn-card-cart" onclick="addToCart({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image|escapejs }}')">Add to Cart</button>
-                            <button class="btn-card-buy" onclick="buyNow({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image|escapejs }}')">Buy Now</button>
+                            <button class="btn-card-cart" onclick="addToCart({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.get_image_url|escapejs }}')">Add to Cart</button>
+                            <button class="btn-card-buy" onclick="buyNow({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.get_image_url|escapejs }}')">Buy Now</button>
                         </div>
                         {% endif %}
                         <div class="actions-secondary">

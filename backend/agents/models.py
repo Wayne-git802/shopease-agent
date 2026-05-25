@@ -121,3 +121,122 @@ class AgentAlert(models.Model):
     class Meta:
         db_table = 'agent_alerts'
         ordering = ['-created_at']
+
+
+# ── EvaluationEvent — user behaviour tracking ────────────────────
+
+class EvaluationEvent(models.Model):
+    """Per-interaction event for offline+online evaluation loop.
+
+    Tracks: impressions, clicks, purchases, dismisses, clarify answers.
+    outcome_type + success enable CTR/CVR/success-rate metrics.
+    """
+    session_id   = models.CharField(max_length=64, db_index=True)
+    query_type   = models.CharField(max_length=32, db_index=True)  # recommend/search/chat/clarify
+    event_type   = models.CharField(max_length=32)  # impression/click/dismiss/skip/clarify/clarify_ask/clarify_answer/fallback
+    product_id   = models.IntegerField(null=True, blank=True)
+    duration_ms  = models.IntegerField(null=True, blank=True)
+    outcome_type = models.CharField(max_length=32, default='')  # clicked/purchased/ignored/abandoned/refined_query/clarified
+    success      = models.BooleanField(default=False)
+    metadata     = models.JSONField(default=dict, blank=True)
+    created_at   = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'ai_evaluation_events'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['query_type', 'created_at']),
+            models.Index(fields=['event_type', 'success']),
+            models.Index(fields=['outcome_type']),
+            models.Index(fields=['session_id', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"[{self.event_type}] {self.query_type} success={self.success}"
+
+
+# ── StandardizedSignal — Phase B signal normalization ────────
+
+class StandardizedSignal(models.Model):
+    """Standardized user behavior signal with semantic classification.
+
+    Raw events (clicks, purchases, clarify answers) are classified into
+    SignalType by the SignalClassifier, then stored here for downstream
+    consumption by ranking feedback, memory distribution, and routing tuning.
+    """
+    session_id  = models.CharField(max_length=64, db_index=True)
+    user_id     = models.IntegerField(null=True, blank=True)
+    signal_type = models.CharField(max_length=16, db_index=True)  # exploration/intent/conversion/negative/stated
+    product_id  = models.IntegerField(null=True, blank=True)
+    category    = models.CharField(max_length=128, default='')
+    value       = models.FloatField(default=0.0)  # signal weight
+    metadata    = models.JSONField(default=dict, blank=True)
+    created_at  = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'ai_standardized_signals'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user_id', 'signal_type']),
+            models.Index(fields=['session_id', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"[{self.signal_type}] user={self.user_id} product={self.product_id}"
+
+
+# ── RoutingTuningLog — Phase B-3 routing accuracy tracking ──
+
+class RoutingTuningLog(models.Model):
+    """Records each routing decision and its eventual outcome for online tuning."""
+    session_id       = models.CharField(max_length=64, db_index=True)
+    intent           = models.CharField(max_length=32)        # the routed intent
+    fast_confidence  = models.FloatField(default=0.0)         # fast classifier confidence
+    routing_method   = models.CharField(max_length=8)         # 'fast' or 'slow'
+    threshold_used   = models.FloatField(default=0.85)        # threshold at decision time
+    outcome          = models.CharField(max_length=16, default='')  # clicked/purchased/dismissed/requeried/unknown
+    reward_score     = models.FloatField(default=0.0)         # -1 to 1
+    created_at       = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'ai_routing_tuning_log'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['routing_method', 'outcome']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return f"[{self.routing_method}] {self.intent} → {self.outcome} (reward={self.reward_score:.2f})"
+
+
+# ── SessionTrace — Phase B-4 replay + diff infrastructure ──
+
+class SessionTrace(models.Model):
+    """Full AI session trace for replay, diff, and observability."""
+    session_id      = models.CharField(max_length=64, unique=True, db_index=True)
+    user_id         = models.IntegerField(null=True, blank=True)
+    query           = models.TextField()
+    intent          = models.CharField(max_length=32, default='')
+    routing_conf    = models.FloatField(default=0.0)
+    ui_state        = models.CharField(max_length=32, default='')
+    reply           = models.TextField(default='')
+    phases          = models.JSONField(default=list)        # [{phase, label, ms}, ...]
+    events          = models.JSONField(default=list)        # [{block, type, ms, payload}, ...]
+    ranked_before   = models.JSONField(default=list)        # [{id, name, price, category}, ...]
+    ranked_after    = models.JSONField(default=list)        # [{id, name, price, category}, ...]
+    signals_applied = models.JSONField(default=dict)        # {category: boost, ...}
+    block_count     = models.IntegerField(default=0)
+    total_ms        = models.IntegerField(default=0)
+    created_at      = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = 'ai_session_traces'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user_id', 'created_at']),
+            models.Index(fields=['intent']),
+        ]
+
+    def __str__(self):
+        return f"[{self.intent}] {self.query[:50]} ({self.total_ms}ms)"

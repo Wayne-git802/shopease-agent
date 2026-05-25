@@ -98,6 +98,18 @@ class Shop(models.Model):
         return self.shop_name
 
 
+class ProductStatus:
+    AVAILABLE = 'available'
+    PENDING = 'pending'
+    SUSPENDED = 'suspended'
+
+    CHOICES = [
+        (AVAILABLE, 'Available'),
+        (PENDING, 'Pending'),
+        (SUSPENDED, 'Suspended'),
+    ]
+
+
 class ProductQuerySet(models.QuerySet):
     def with_sales_data(self):
         from orders.models import OrderItem
@@ -147,6 +159,12 @@ class Product(models.Model):
         verbose_name='所属店铺'
     )
     is_active = models.BooleanField(default=True, verbose_name='是否上架')
+    status = models.CharField(
+        max_length=20,
+        choices=ProductStatus.CHOICES,
+        default=ProductStatus.AVAILABLE,
+        verbose_name='商品状态'
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
@@ -157,6 +175,11 @@ class Product(models.Model):
             return self.inventory.quantity
         except Inventory.DoesNotExist:
             return 0
+
+    def get_image_url(self):
+        """返回商品图片 URL — 有真实图用真实图，否则生成 SVG 占位图"""
+        from .image_utils import product_image_url
+        return product_image_url(self)
 
     class Meta:
         db_table = 'products'

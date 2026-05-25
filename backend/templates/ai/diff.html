@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% block title %}AI Diff View — ShopEase{% endblock %}
+{% block content %}
+<div class="ai-page">
+  <div class="ai-header">
+    <h1>🔬 Recommendation Diff View</h1>
+    <p>Before vs After：观察系统如何根据交互行为动态调整推荐</p>
+  </div>
+
+  {% if first_trace and last_trace and first_trace.session_id != last_trace.session_id %}
+  <div class="diff-container">
+    <div class="diff-col">
+      <h3>📅 Early Session</h3>
+      <p class="diff-session-id">{{ first_trace.session_id }}</p>
+      <p class="diff-query">Query: "{{ first_trace.query }}"</p>
+      <p class="diff-meta">Intent: {{ first_trace.intent }} | {{ first_trace.total_ms }}ms</p>
+      <div class="diff-products">
+        {% for p in first_trace.ranked_after %}
+        <div class="diff-product">
+          <span class="diff-rank">#{{ forloop.counter }}</span>
+          <span class="diff-name">{{ p.name|default:"Product #"|add:p.id|stringformat:"s" }}</span>
+          <span class="diff-price">${{ p.price|floatformat:2 }}</span>
+          <span class="diff-cat">{{ p.category }}</span>
+        </div>
+        {% empty %}
+        <p class="empty-hint">No ranked products in this session.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="diff-arrow">→</div>
+
+    <div class="diff-col">
+      <h3>🔄 Latest Session</h3>
+      <p class="diff-session-id">{{ last_trace.session_id }}</p>
+      <p class="diff-query">Query: "{{ last_trace.query }}"</p>
+      <p class="diff-meta">Intent: {{ last_trace.intent }} | {{ last_trace.total_ms }}ms</p>
+      <div class="diff-products">
+        {% for p in last_trace.ranked_after %}
+        <div class="diff-product">
+          <span class="diff-rank">#{{ forloop.counter }}</span>
+          <span class="diff-name">{{ p.name|default:"Product #"|add:p.id|stringformat:"s" }}</span>
+          <span class="diff-price">${{ p.price|floatformat:2 }}</span>
+          <span class="diff-cat">{{ p.category }}</span>
+        </div>
+        {% empty %}
+        <p class="empty-hint">No ranked products in this session.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {% if last_trace.signals_applied %}
+  <div class="signals-section">
+    <h3>📡 Signal Changes</h3>
+    <div class="signal-tags">
+      {% for cat, boost in last_trace.signals_applied.items %}
+      <span class="signal-tag {% if boost > 0 %}signal-positive{% else %}signal-negative{% endif %}">
+        {% if boost > 0 %}🟢{% else %}🔴{% endif %}
+        {{ cat }}: {% if boost > 0 %}+{% endif %}{{ boost }}
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty-state">
+    <p>📊 需要至少 2 次不同会话才能展示 Diff。</p>
+    <p>去 <a href="{% url 'ai_workspace' %}">AI Workspace</a> 多交互几次后再来看。</p>
+  </div>
+  {% endif %}
+
+  {% if traces %}
+  <div class="trace-list">
+    <h3>📋 Recent Sessions ({{ traces|length }})</h3>
+    <table class="trace-table">
+      <thead><tr><th>Time</th><th>Query</th><th>Intent</th><th>Items</th><th>ms</th></tr></thead>
+      <tbody>
+      {% for t in traces %}
+      <tr>
+        <td>{{ t.created_at|date:"m-d H:i" }}</td>
+        <td>{{ t.query|truncatechars:40 }}</td>
+        <td><span class="badge badge-{{ t.intent }}">{{ t.intent }}</span></td>
+        <td>{{ t.block_count }}</td>
+        <td>{{ t.total_ms }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<style>
+.ai-page { max-width: 1100px; margin: 0 auto; padding: 24px; }
+.ai-header { margin-bottom: 24px; }
+.ai-header h1 { font-size: 24px; margin-bottom: 4px; }
+.ai-header p { color: #666; }
+.diff-container { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 24px; }
+.diff-col { flex: 1; background: #f8f9fa; border-radius: 12px; padding: 16px; }
+.diff-col h3 { margin: 0 0 8px; font-size: 16px; }
+.diff-session-id { font-family: monospace; font-size: 12px; color: #999; }
+.diff-query { font-weight: 500; }
+.diff-meta { font-size: 13px; color: #888; margin-bottom: 12px; }
+.diff-arrow { font-size: 32px; color: #4a90d9; padding-top: 60px; }
+.diff-product { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+.diff-rank { color: #999; min-width: 24px; }
+.diff-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-price { color: #e74c3c; font-weight: 600; min-width: 70px; text-align: right; }
+.diff-cat { color: #888; font-size: 12px; min-width: 100px; }
+.signals-section { background: #f0f7ff; border-radius: 12px; padding: 16px; margin-bottom: 24px; }
+.signals-section h3 { margin: 0 0 8px; }
+.signal-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.signal-tag { padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 500; }
+.signal-positive { background: #d4edda; color: #155724; }
+.signal-negative { background: #f8d7da; color: #721c24; }
+.empty-state { text-align: center; padding: 60px; color: #888; }
+.empty-hint { color: #bbb; font-style: italic; padding: 20px; }
+.trace-list { background: #fff; border-radius: 12px; padding: 16px; border: 1px solid #e0e0e0; }
+.trace-list h3 { margin: 0 0 12px; }
+.trace-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.trace-table th { text-align: left; padding: 8px; border-bottom: 2px solid #eee; color: #888; }
+.trace-table td { padding: 8px; border-bottom: 1px solid #f0f0f0; }
+.badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+.badge-search { background: #d4edda; color: #155724; }
+.badge-recommend { background: #cce5ff; color: #004085; }
+.badge-chat { background: #e2e3e5; color: #383d41; }
+</style>
+{% endblock %}

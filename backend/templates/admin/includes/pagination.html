@@ -1,0 +1,39 @@
+{% load product_tags %}
+{% if page_obj.paginator.num_pages > 1 %}
+{% with total=page_obj.paginator.num_pages current=page_obj.number %}
+<div class="pagination-bar">
+    <span class="pagination-info">
+        Showing {{ page_obj.start_index }}&ndash;{{ page_obj.end_index }} of {{ page_obj.paginator.count }} items
+    </span>
+    <div class="pagination-links">
+        {% if current > 1 %}
+        <a href="{% pagination_url 1 %}" class="pagination-btn pagination-nav" title="First page">&laquo; First</a>
+        <a href="{% pagination_url current|add:"-1" %}" class="pagination-btn pagination-nav" title="Previous page">&lsaquo; Prev</a>
+        {% else %}
+        <span class="pagination-btn pagination-nav disabled">&laquo; First</span>
+        <span class="pagination-btn pagination-nav disabled">&lsaquo; Prev</span>
+        {% endif %}
+
+        {% for p in page_obj.paginator.page_range %}
+            {% if p == 1 or p == total or p >= current|add:"-2" and p <= current|add:"2" %}
+                {% if p == current %}
+                <span class="pagination-btn active">{{ p }}</span>
+                {% else %}
+                <a href="{% pagination_url p %}" class="pagination-btn">{{ p }}</a>
+                {% endif %}
+            {% elif p == current|add:"-3" or p == current|add:"3" %}
+                <span class="pagination-ellipsis">&hellip;</span>
+            {% endif %}
+        {% endfor %}
+
+        {% if current < total %}
+        <a href="{% pagination_url current|add:"1" %}" class="pagination-btn pagination-nav" title="Next page">Next &rsaquo;</a>
+        <a href="{% pagination_url total %}" class="pagination-btn pagination-nav" title="Last page">Last &raquo;</a>
+        {% else %}
+        <span class="pagination-btn pagination-nav disabled">Next &rsaquo;</span>
+        <span class="pagination-btn pagination-nav disabled">Last &raquo;</span>
+        {% endif %}
+    </div>
+</div>
+{% endwith %}
+{% endif %}

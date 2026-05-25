@@ -13,7 +13,7 @@
             <div class="alert alert-danger">{{ error }}</div>
             {% endif %}
 
-            <form method="post">
+            <form method="post" id="register-form" onsubmit="return true;">
                 {% csrf_token %}
                 
                 <div class="form-group">
@@ -56,7 +56,7 @@
                     <input type="text" id="address" name="address" class="form-input">
                 </div>
 
-                <button type="submit" class="btn btn-primary" style="width: 100%; padding: 1rem;">
+                <button type="button" onclick="this.form.submit()" class="btn btn-primary" style="width: 100%; padding: 1rem;">
                     Register
                 </button>
             </form>
@@ -67,4 +67,11 @@
         </div>
     </div>
 </div>
+
+<script>
+// Robust form submission — ensure button click submits
+document.querySelector('#register-form button[type="button"]').addEventListener('click', function() {
+    document.getElementById('register-form').submit();
+});
+</script>
 {% endblock %}

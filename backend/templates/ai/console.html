@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Agent Console — ShopEase{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/ai.css' %}?v=20260522">
+<link rel="stylesheet" href="{% static 'css/console.css' %}?v=20260522">
+{% endblock %}
+
+{% block content %}
+<div class="console-container">
+
+    <!-- Navigation -->
+
+    <!-- Layer 1: Runtime Health -->
+    <section class="console-section health-bar" id="healthBar">
+        <div class="health-metric">
+            <span class="health-label">Avg Latency</span>
+            <span class="health-value" id="avgLatency">--</span>
+            <span class="health-unit">ms</span>
+        </div>
+        <div class="health-metric">
+            <span class="health-label">P95 Latency</span>
+            <span class="health-value" id="p95Latency">--</span>
+            <span class="health-unit">ms</span>
+        </div>
+        <div class="health-metric">
+            <span class="health-label">Routing Quality</span>
+            <span class="health-value" id="routingQuality">--</span>
+            <span class="health-unit">%</span>
+        </div>
+        <div class="health-metric">
+            <span class="health-label">Fast Ratio</span>
+            <span class="health-value" id="fastRatio">--</span>
+            <span class="health-unit">%</span>
+        </div>
+        <div class="health-metric">
+            <span class="health-label">Active (24h)</span>
+            <span class="health-value" id="sessionCount">--</span>
+        </div>
+    </section>
+
+    <!-- Layer 1.5: Learning Impact -->
+    <section class="console-section impact-panel">
+        <div class="section-header">
+            <h2>📊 Learning Impact</h2>
+            <span class="section-subtitle">Is the system actually improving?</span>
+        </div>
+        <div class="impact-cards">
+            <div class="impact-card ranking-lift">
+                <span class="impact-icon">📈</span>
+                <span class="impact-label">Rank Shift</span>
+                <span class="impact-value" id="rankShift">--</span>
+                <span class="impact-unit">avg position</span>
+                <span class="impact-desc" id="rankShiftDesc">--</span>
+            </div>
+            <div class="impact-card clarify">
+                <span class="impact-icon">🎯</span>
+                <span class="impact-label">Clarify Rate</span>
+                <span class="impact-value" id="clarifyRate">--</span>
+                <span class="impact-unit">sessions</span>
+                <span class="impact-desc" id="clarifyDesc">--</span>
+            </div>
+            <div class="impact-card fallback">
+                <span class="impact-icon">🛡️</span>
+                <span class="impact-label">Fallback Rate</span>
+                <span class="impact-value" id="fallbackRate">--</span>
+                <span class="impact-unit">sessions</span>
+                <span class="impact-desc" id="fallbackDesc">--</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Layer 2: Session Traces -->
+    <section class="console-section trace-list">
+        <div class="section-header">
+            <h2>📋 Recent Sessions</h2>
+            <span class="section-badge" id="traceCount">0</span>
+        </div>
+        <div class="trace-table" id="traceList">
+            <div class="trace-empty">Loading sessions...</div>
+        </div>
+    </section>
+
+    <!-- Trace Detail (expandable) -->
+    <section class="console-section trace-detail" id="traceDetail" style="display:none">
+        <div class="section-header">
+            <h2 id="detailTitle">Session Detail</h2>
+            <button class="btn-close" onclick="closeDetail()">✕</button>
+        </div>
+        <!-- Insight Cards -->
+        <div class="insight-cards" id="insightCards"></div>
+        <!-- Ranking Diff -->
+        <div class="ranking-diff" id="rankingDiff" style="display:none">
+            <h3>📊 Ranking Changes</h3>
+            <div class="diff-table" id="diffTable"></div>
+        </div>
+    </section>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Configuration ──────────────────────────────────────────
+const API = {
+    traces: '/api/agents/console/traces/',
+    health: '/api/agents/console/health/',
+    detail: (sid) => `/api/agents/console/traces/${sid}/`,
+};
+
+// ── State ───────────────────────────────────────────────────
+let currentDetailId = null;
+
+// ── Fetch helpers ───────────────────────────────────────────
+async function fetchJSON(url) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return resp.json();
+}
+
+// ── Layer 1: Health ─────────────────────────────────────────
+async function loadHealth() {
+    try {
+        const h = await fetchJSON(API.health);
+        document.getElementById('avgLatency').textContent = h.avg_latency_ms;
+        document.getElementById('p95Latency').textContent = h.p95_latency_ms;
+        document.getElementById('routingQuality').textContent = Math.round(h.routing_quality * 100);
+        document.getElementById('fastRatio').textContent = Math.round(h.fast_ratio * 100);
+        document.getElementById('sessionCount').textContent = h.total_sessions_24h;
+
+        // ── Impact Panel ──────────────────────────────────
+        const total = h.total_sessions_24h || 1;
+
+        // Rank Shift (ranking_lift_avg)
+        const shift = h.ranking_lift_avg || 0;
+        const shiftSign = shift > 0 ? '+' : '';
+        document.getElementById('rankShift').textContent = `${shiftSign}${shift}`;
+        document.getElementById('rankShift').style.color = shift > 0 ? '#15803d' : (shift < 0 ? '#dc2626' : '#111827');
+        document.getElementById('rankShiftDesc').textContent =
+            `based on ${h.ranked_session_count || 0} personalized sessions`;
+
+        // Clarify Rate
+        const clarifyPct = ((h.clarify_rate ?? 0) * 100).toFixed(1);
+        document.getElementById('clarifyRate').textContent = `${clarifyPct}% (${h.clarify_count || 0} sessions)`;
+        document.getElementById('clarifyDesc').textContent = 'sessions needing clarification';
+
+        // Fallback Rate
+        const fallbackPct = ((h.fallback_rate ?? 0) * 100).toFixed(1);
+        document.getElementById('fallbackRate').textContent = `${fallbackPct}% (${h.fallback_count || 0} sessions)`;
+        document.getElementById('fallbackDesc').textContent = 'unhandled requests';
+    } catch(e) { console.warn('Health load failed:', e); }
+}
+
+// ── Layer 2: Trace List ─────────────────────────────────────
+async function loadTraces() {
+    try {
+        const data = await fetchJSON(API.traces + '?limit=20');
+        document.getElementById('traceCount').textContent = data.count;
+        const container = document.getElementById('traceList');
+        if (!data.traces.length) {
+            container.innerHTML = '<div class="trace-empty">No sessions yet. Try searching in <a href="/ai/workspace/">AI Workspace</a>.</div>';
+            return;
+        }
+        container.innerHTML = data.traces.map((t, i) => `
+            <div class="trace-row ${i < 3 ? 'trace-row-new' : ''}" 
+                 onclick="loadDetail('${t.session_id}')" 
+                 data-sid="${t.session_id}">
+                <span class="trace-intent intent-${t.intent}">${t.intent}</span>
+                <span class="trace-query">${escHtml(t.query)}</span>
+                <span class="trace-ms">${t.total_ms}ms</span>
+                <span class="trace-blocks">${Object.entries(t.blocks).map(([k,v]) => `${k}×${v}`).join(' ')}</span>
+                <span class="trace-arrow">▶</span>
+            </div>
+        `).join('');
+    } catch(e) { 
+        document.getElementById('traceList').innerHTML = `<div class="trace-empty">Failed to load: ${e.message}</div>`;
+    }
+}
+
+// ── Trace Detail (progressive reveal) ───────────────────────
+async function loadDetail(sessionId) {
+    try {
+        const d = await fetchJSON(API.detail(sessionId));
+        currentDetailId = sessionId;
+        
+        // Show detail panel
+        const panel = document.getElementById('traceDetail');
+        panel.style.display = 'block';
+        document.getElementById('detailTitle').textContent = 
+            `Session: "${d.query.slice(0, 60)}"  ·  ${d.intent}  ·  ${d.total_ms}ms`;
+        
+        // Highlight selected row
+        document.querySelectorAll('.trace-row').forEach(r => r.classList.remove('active'));
+        const row = document.querySelector(`[data-sid="${sessionId}"]`);
+        if (row) row.classList.add('active');
+        
+        // Progressive reveal: stagger insight cards
+        const cardsContainer = document.getElementById('insightCards');
+        cardsContainer.innerHTML = '';
+        
+        // Map block to icon
+        const blockIcons = {
+            routing:  '🧠', 
+            retrieval: '🔎', 
+            ranking: '⚖️', 
+            response: '✨',
+            signal: '📈'
+        };
+        const blockLabels = {
+            routing: 'Understanding', 
+            retrieval: 'Retrieval', 
+            ranking: 'Ranking', 
+            response: 'Response',
+            signal: 'Signal'
+        };
+        
+        (d.events || []).forEach((e, i) => {
+            const card = document.createElement('div');
+            card.className = 'insight-card';
+            card.style.animationDelay = `${i * 0.12}s`;
+            card.innerHTML = `
+                <span class="card-icon">${blockIcons[e.block] || '📌'}</span>
+                <span class="card-label">${blockLabels[e.block] || e.block}</span>
+                <span class="card-value">${formatPayload(e.block, e.payload)}</span>
+                <span class="card-meta">${e.ms ? e.ms + 'ms' : ''}</span>
+            `;
+            cardsContainer.appendChild(card);
+        });
+        
+        // Ranking Diff
+        const diffDiv = document.getElementById('rankingDiff');
+        const changes = d.events.find(e => e.block === 'ranking')?.payload?.changes || [];
+        if (changes.length) {
+            diffDiv.style.display = 'block';
+            document.getElementById('diffTable').innerHTML = `
+                <table class="diff-table-real">
+                    <thead><tr><th>Product ID</th><th>Before</th><th>After</th><th>Δ</th><th>Signals</th></tr></thead>
+                    <tbody>
+                        ${changes.map(c => `
+                            <tr class="${c.delta > 0 ? 'diff-up' : 'diff-down'}">
+                                <td>${c.product_id}</td>
+                                <td>#${c.before}</td>
+                                <td>#${c.after}</td>
+                                <td>${c.delta > 0 ? '↑' : '↓'}${Math.abs(c.delta)}</td>
+                                <td class="diff-signals">${(d.signals_applied ? Object.entries(d.signals_applied).map(([k,v]) => `${k} ${v>0?'+':''}${v}`).join(', ') : '—')}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        } else {
+            diffDiv.style.display = 'none';
+        }
+        
+    } catch(e) {
+        alert('Failed to load trace: ' + e.message);
+    }
+}
+
+function closeDetail() {
+    document.getElementById('traceDetail').style.display = 'none';
+    currentDetailId = null;
+    document.querySelectorAll('.trace-row').forEach(r => r.classList.remove('active'));
+}
+
+// ── Helpers ─────────────────────────────────────────────────
+function formatPayload(block, payload) {
+    if (!payload) return '';
+    switch(block) {
+        case 'routing': 
+            return `${payload.intent || ''} (${Math.round((payload.confidence||0)*100)}%)`;
+        case 'retrieval': 
+            if (payload.strategy === 'structured_sort') 
+                return `SQL ORDER BY ${payload.sort_by} ${payload.direction}`;
+            return `${payload.candidates||0} → ${payload.after_filter||0} → ${payload.after_rank||0}`;
+        case 'ranking': 
+            const ch = payload.changes || [];
+            return ch.length ? `${ch.length} item${ch.length>1?'s':''} moved` : 'no change';
+        case 'response': 
+            return payload.has_reply ? `${payload.length} chars` : '(empty)';
+        default: return JSON.stringify(payload).slice(0, 60);
+    }
+}
+
+function escHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
+
+// ── Auto-refresh ────────────────────────────────────────────
+function autoRefresh() {
+    loadHealth();
+    loadTraces();
+}
+
+// ── Init ────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    loadHealth();
+    loadTraces();
+    setInterval(autoRefresh, 30000); // 30s auto-refresh
+});
+</script>
+{% endblock %}

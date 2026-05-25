@@ -9,6 +9,44 @@
 </head>
 <body>
     <!-- Navigation -->
+    {% if user.is_staff %}
+    {# ── Admin Nav ── #}
+    <nav class="navbar">
+        <div class="navbar-container">
+            <a href="/manage/" class="logo" style="background: linear-gradient(135deg, #ea580c, #be123c); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">ShopEase Admin</a>
+            <ul class="nav-links">
+                <li><a href="/manage/" id="nav-admin-dashboard">📊 Dashboard</a></li>
+                <li><a href="/manage/products/" id="nav-admin-products">📦 Products</a></li>
+                <li><a href="/manage/orders/" id="nav-admin-orders">📋 Orders</a></li>
+                <li><a href="/manage/sellers/" id="nav-admin-sellers">🏪 Sellers</a></li>
+                <li><a href="/ai/console/" id="nav-admin-console">🖥️ Console</a></li>
+                <li><a href="/users/logout/"
+                       style="color: #ef4444; border: 1px solid #ef4444; border-radius: 20px; padding: 0.3rem 1rem;">🚪 Logout</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <script>
+    (function() {
+        const path = window.location.pathname;
+        const prefixMatches = [
+            { prefix: '/manage/products/', id: 'nav-admin-products' },
+            { prefix: '/manage/orders/', id: 'nav-admin-orders' },
+            { prefix: '/manage/sellers/', id: 'nav-admin-sellers' },
+            { prefix: '/manage/', id: 'nav-admin-dashboard' },
+            { prefix: '/ai/console/', id: 'nav-admin-console' },
+        ];
+        for (const item of prefixMatches) {
+            if (path.startsWith(item.prefix)) {
+                const el = document.getElementById(item.id);
+                if (el) { el.style.color = '#2563eb'; el.style.fontWeight = '600'; }
+                break;
+            }
+        }
+    })();
+    </script>
+    {% else %}
+    {# ── Regular User Nav ── #}
     <nav class="navbar">
         <div class="navbar-container">
             <a href="/" class="logo">ShopEase</a>
@@ -29,8 +67,10 @@
                     <li><a href="/users/login/" id="nav-login">Login</a></li>
                     <li><a href="/users/register/" id="nav-register">Register</a></li>
                 {% endif %}
+                <li><a href="/ai/workspace/" id="nav-ai"
+                       style="background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff !important; border-radius: 20px; padding: 0.4rem 1rem;">🤖 AI</a></li>
                 {% if user.is_staff %}
-                    <li><a href="/admin/" id="nav-admin">Admin</a></li>
+                    <li><a href="/manage/" id="nav-admin" style="background: linear-gradient(135deg, #ea580c, #be123c); color: #fff !important; border-radius: 20px; padding: 0.4rem 1rem;">⚙️ Admin</a></li>
                 {% endif %}
             </ul>
         </div>
@@ -57,7 +97,7 @@
         const prefixMatches = [
             { prefix: '/shop/', id: 'nav-store' },
             { prefix: '/shops/', id: 'nav-store' },
-            { prefix: '/admin/', id: 'nav-admin' },
+            { prefix: '/ai/', id: 'nav-ai' },
         ];
         
         let activeId = null;
@@ -85,6 +125,7 @@
         }
     })();
     </script>
+    {% endif %}
 
     <!-- Main Content -->
     <main>
@@ -180,6 +221,7 @@
                     <li><a href="/products/">All Products</a></li>
                     <li><a href="/orders/">My Orders</a></li>
                     <li><a href="/cart/">Shopping Cart</a></li>
+                    <li><a href="/ai/workspace/" style="color: #7c3aed;">🤖 AI Assistant</a></li>
                 </ul>
             </div>
             <div>
@@ -193,6 +235,17 @@
         </div>
     </footer>
 
+    <script>
+    // Product placeholder for missing images (used by Agent cards)
+    function productPlaceholder(name) {
+        var colors = ['#2563eb','#7c3aed','#dc2626','#059669','#d97706','#0891b2','#be185d','#4f46e5'];
+        var hash = 0;
+        for (var i = 0; i < (name||'P').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+        var color = colors[Math.abs(hash) % colors.length];
+        var letter = (name || 'P').charAt(0).toUpperCase();
+        return '<div class="product-placeholder" style="background:'+color+';width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3rem;font-weight:700;color:#fff;border-radius:12px;">'+letter+'</div>';
+    }
+    </script>
     <script src="/static/js/cart.js?v=20260429c"></script>
     {% block extra_js %}{% endblock %}
 </body>

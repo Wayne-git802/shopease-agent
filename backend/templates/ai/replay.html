@@ -1,0 +1,156 @@
+{% extends 'base.html' %}
+{% block title %}Session Replay — ShopEase{% endblock %}
+{% block content %}
+<div class="ai-page">
+  <div class="ai-header">
+    <h1>⏪ Session Replay</h1>
+    <p>回放每一次 AI 会话的完整决策链路</p>
+  </div>
+
+  {% if selected %}
+  <div class="replay-main">
+    <div class="replay-header-bar">
+      <span class="replay-session-id">Session #{{ selected.session_id|slice:":8" }}</span>
+      <span class="replay-time">{{ selected.created_at|date:"Y-m-d H:i:s" }}</span>
+      <span class="badge badge-{{ selected.intent }}">{{ selected.intent }}</span>
+    </div>
+
+    <div class="replay-query">
+      <strong>👤 User:</strong> "{{ selected.query }}"
+    </div>
+
+    <div class="replay-timeline">
+      <h3>🧠 Cognitive Timeline</h3>
+      <div class="phases">
+        {% for p in selected.phases %}
+        <div class="phase-row">
+          <span class="phase-dot phase-{{ p.status }}"></span>
+          <span class="phase-icon">
+            {% if p.phase == "understanding" %}🧠
+            {% elif p.phase == "searching" %}🔎
+            {% elif p.phase == "recommending" %}⚖️
+            {% elif p.phase == "responding" %}✨
+            {% else %}➡️{% endif %}
+          </span>
+          <span class="phase-label">{{ p.label }}</span>
+          <span class="phase-status">
+            {% if p.status == "ok" %}✓{% elif p.status == "fallback" %}⚠️{% else %}○{% endif %}
+          </span>
+          <span class="phase-ms">{{ p.ms }}ms</span>
+        </div>
+        {% empty %}
+        <p class="empty-hint">No phase data recorded.</p>
+        {% endfor %}
+      </div>
+      <div class="phase-total">总耗时: {{ selected.total_ms }}ms</div>
+    </div>
+
+    <div class="replay-outcome">
+      <strong>📤 System Reply:</strong>
+      <p>{{ selected.reply|default:"(no reply)" }}</p>
+    </div>
+
+    {% if selected.ranked_after %}
+    <div class="replay-ranked">
+      <h3>📊 Ranked Results ({{ selected.ranked_after|length }})</h3>
+      <div class="ranked-list">
+        {% for p in selected.ranked_after %}
+        <div class="ranked-item">
+          <span class="rank-num">#{{ forloop.counter }}</span>
+          <span class="rank-name">{{ p.name|default:"Product #"|add:p.id|stringformat:"s" }}</span>
+          <span class="rank-price">${{ p.price|floatformat:2 }}</span>
+          <span class="rank-cat">{{ p.category }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if selected.signals_applied %}
+    <div class="replay-signals">
+      <h3>📡 Signals Applied</h3>
+      {% for cat, boost in selected.signals_applied.items %}
+      <span class="signal-tag {% if boost > 0 %}signal-positive{% else %}signal-negative{% endif %}">
+        {{ cat }}: {% if boost > 0 %}+{% endif %}{{ boost }}
+      </span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if traces %}
+  <div class="session-list">
+    <h3>📋 Session History</h3>
+    <div class="session-cards">
+      {% for t in traces %}
+      <a href="?id={{ t.session_id }}" class="session-card {% if selected and selected.session_id == t.session_id %}session-active{% endif %}">
+        <div class="sc-top">
+          <span class="sc-id">#{{ t.session_id|slice:":8" }}</span>
+          <span class="sc-time">{{ t.created_at|date:"m-d H:i" }}</span>
+        </div>
+        <div class="sc-query">{{ t.query|truncatechars:50 }}</div>
+        <div class="sc-bottom">
+          <span class="badge badge-{{ t.intent }}">{{ t.intent }}</span>
+          <span>{{ t.total_ms }}ms</span>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p>📊 暂无会话记录。</p>
+    <p>去 <a href="{% url 'ai_workspace' %}">AI Workspace</a> 开始对话。</p>
+  </div>
+  {% endif %}
+</div>
+
+<style>
+.ai-page { max-width: 1000px; margin: 0 auto; padding: 24px; }
+.ai-header { margin-bottom: 24px; }
+.ai-header h1 { font-size: 24px; margin-bottom: 4px; }
+.ai-header p { color: #666; }
+.replay-main { background: #fff; border-radius: 12px; border: 1px solid #e0e0e0; padding: 24px; margin-bottom: 24px; }
+.replay-header-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+.replay-session-id { font-family: monospace; font-weight: 600; }
+.replay-time { color: #888; font-size: 13px; }
+.replay-query { background: #f0f7ff; border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 15px; }
+.replay-timeline { margin-bottom: 16px; }
+.replay-timeline h3 { font-size: 15px; margin-bottom: 8px; }
+.phases { margin-bottom: 8px; }
+.phase-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 14px; }
+.phase-dot { width: 8px; height: 8px; border-radius: 50%; }
+.phase-ok { background: #27ae60; }
+.phase-fallback { background: #f39c12; }
+.phase-skip { background: #bbb; }
+.phase-ms { color: #999; margin-left: auto; font-family: monospace; }
+.phase-total { color: #666; font-size: 13px; border-top: 1px solid #eee; padding-top: 8px; }
+.replay-outcome { margin-bottom: 16px; }
+.replay-outcome p { margin: 4px 0 0; color: #555; }
+.replay-ranked h3, .replay-signals h3 { font-size: 14px; margin-bottom: 8px; }
+.ranked-item { display: flex; gap: 8px; padding: 4px 0; font-size: 13px; border-bottom: 1px solid #f5f5f5; }
+.rank-num { color: #999; min-width: 20px; }
+.rank-name { flex: 1; }
+.rank-price { color: #e74c3c; font-weight: 600; }
+.rank-cat { color: #888; font-size: 12px; }
+.signal-tag { padding: 2px 10px; border-radius: 12px; font-size: 12px; margin-right: 4px; }
+.signal-positive { background: #d4edda; color: #155724; }
+.signal-negative { background: #f8d7da; color: #721c24; }
+.session-list h3 { font-size: 15px; margin-bottom: 8px; }
+.session-cards { display: flex; flex-wrap: wrap; gap: 10px; }
+.session-card { display: block; width: 180px; background: #f8f9fa; border-radius: 8px; padding: 10px; text-decoration: none; color: inherit; border: 2px solid transparent; }
+.session-card:hover { border-color: #4a90d9; }
+.session-active { border-color: #4a90d9; background: #f0f7ff; }
+.sc-top { display: flex; justify-content: space-between; font-size: 12px; color: #888; margin-bottom: 4px; }
+.sc-id { font-family: monospace; }
+.sc-query { font-size: 13px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-bottom { display: flex; justify-content: space-between; font-size: 12px; }
+.badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+.badge-search { background: #d4edda; color: #155724; }
+.badge-recommend { background: #cce5ff; color: #004085; }
+.badge-chat { background: #e2e3e5; color: #383d41; }
+.empty-state { text-align: center; padding: 60px; color: #888; }
+.empty-hint { color: #bbb; font-style: italic; }
+</style>
+{% endblock %}

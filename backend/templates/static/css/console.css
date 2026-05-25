@@ -1,0 +1,335 @@
+/* ── Agent Console — runtime observability styling ── */
+
+/* Container */
+.console-container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px 16px 80px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ── Navigation ─────────────────────────────── */
+.console-header {
+    margin-bottom: 28px;
+}
+.console-nav {
+    display: flex;
+    gap: 8px;
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 12px;
+}
+.nav-link {
+    padding: 8px 18px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #6b7280;
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+.nav-link:hover { background: #f3f4f6; color: #374151; }
+.nav-link.active { background: #111827; color: #fff; }
+
+/* ── Section ────────────────────────────────── */
+.console-section {
+    margin-bottom: 28px;
+}
+.section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.section-header h2 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0;
+    color: #111827;
+}
+.section-subtitle {
+    font-size: 13px;
+    color: #9ca3af;
+    margin-left: 4px;
+}
+.section-header h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+    color: #374151;
+}
+.section-badge {
+    background: #111827;
+    color: #fff;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* ── Layer 1: Health Bar ────────────────────── */
+.health-bar {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+}
+.health-metric {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.health-label {
+    font-size: 12px;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+.health-value {
+    font-size: 28px;
+    font-weight: 800;
+    color: #111827;
+    line-height: 1;
+}
+.health-unit {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-top: 2px;
+}
+
+/* ── Layer 1.5: Impact Panel ────────────────── */
+.impact-panel {
+    margin-bottom: 28px;
+}
+.impact-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+}
+.impact-card {
+    border-radius: 12px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border: 1px solid transparent;
+    transition: box-shadow 0.2s, transform 0.2s;
+}
+.impact-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    transform: translateY(-1px);
+}
+.impact-card.ranking-lift {
+    background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+    border-color: #bbf7d0;
+}
+.impact-card.clarify {
+    background: linear-gradient(135deg, #faf5ff, #f3e8ff);
+    border-color: #e9d5ff;
+}
+.impact-card.fallback {
+    background: linear-gradient(135deg, #eff6ff, #dbeafe);
+    border-color: #bfdbfe;
+}
+.impact-icon {
+    font-size: 22px;
+    margin-bottom: 2px;
+}
+.impact-label {
+    font-size: 12px;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+.impact-value {
+    font-size: 32px;
+    font-weight: 800;
+    color: #111827;
+    line-height: 1;
+}
+.impact-unit {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-top: 2px;
+}
+.impact-desc {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-top: 6px;
+}
+
+/* ── Layer 2: Trace List ────────────────────── */
+.trace-table {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #fff;
+}
+.trace-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 14px;
+}
+.trace-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 60px 120px 30px;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #f3f4f6;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.trace-row:last-child { border-bottom: none; }
+.trace-row:hover { background: #f9fafb; }
+.trace-row.active { background: #eff6ff; border-left: 3px solid #3b82f6; }
+.trace-row-new { animation: fadeSlideIn 0.4s ease-out; }
+
+.trace-intent {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.intent-search    { background: #dbeafe; color: #1d4ed8; }
+.intent-recommend { background: #dcfce7; color: #15803d; }
+.intent-chat      { background: #f3f4f6; color: #4b5563; }
+.intent-analytics { background: #fef3c7; color: #b45309; }
+.intent-ops       { background: #fce7f3; color: #be185d; }
+.intent-order     { background: #ede9fe; color: #6d28d9; }
+
+.trace-query {
+    font-size: 14px;
+    color: #374151;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.trace-ms {
+    font-size: 12px;
+    color: #9ca3af;
+    font-variant-numeric: tabular-nums;
+}
+.trace-blocks {
+    font-size: 11px;
+    color: #6b7280;
+}
+.trace-arrow {
+    font-size: 12px;
+    color: #d1d5db;
+    text-align: right;
+}
+
+/* ── Insight Cards ──────────────────────────── */
+.insight-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.insight-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    animation: fadeSlideIn 0.35s ease-out both;
+}
+.card-icon {
+    font-size: 20px;
+    margin-bottom: 4px;
+}
+.card-label {
+    font-size: 11px;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+.card-value {
+    font-size: 13px;
+    color: #374151;
+    font-weight: 500;
+}
+.card-meta {
+    font-size: 11px;
+    color: #d1d5db;
+    margin-top: 2px;
+}
+
+/* ── Ranking Diff ───────────────────────────── */
+.ranking-diff {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 12px;
+}
+.ranking-diff h3 {
+    margin: 0 0 12px;
+    font-size: 15px;
+}
+.diff-table-real {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.diff-table-real th {
+    text-align: left;
+    padding: 8px 10px;
+    color: #9ca3af;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-bottom: 2px solid #e5e7eb;
+}
+.diff-table-real td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #f3f4f6;
+    font-variant-numeric: tabular-nums;
+}
+.diff-up { background: #f0fdf4; }
+.diff-down { background: #fef2f2; }
+.diff-signals {
+    font-size: 11px;
+    color: #6b7280;
+    font-family: 'SF Mono', 'Consolas', monospace;
+}
+
+/* ── Buttons ────────────────────────────────── */
+.btn-close {
+    margin-left: auto;
+    background: none;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #6b7280;
+    transition: all 0.15s;
+}
+.btn-close:hover { background: #fee2e2; border-color: #fca5a5; color: #dc2626; }
+
+/* ── Animations ─────────────────────────────── */
+@keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Responsive ─────────────────────────────── */
+@media (max-width: 640px) {
+    .health-bar { grid-template-columns: repeat(2, 1fr); }
+    .impact-cards { grid-template-columns: 1fr; }
+    .trace-row { grid-template-columns: 50px 1fr 50px 60px 20px; gap: 6px; font-size: 12px; }
+    .insight-cards { grid-template-columns: 1fr; }
+}

@@ -320,7 +320,7 @@
         <!-- 左侧：商品图片 -->
         <div class="product-image-box">
             <div class="card">
-                <img src="{{ product.image|default:'https://via.placeholder.com/600x480?text=No+Image' }}"
+                <img src="{{ product.get_image_url }}"
                      alt="{{ product.name }}">
             </div>
         </div>
@@ -432,12 +432,12 @@
                 </div>
                 <div class="btn-row">
                     <button class="btn btn-primary"
-                            onclick="requireLogin(() => addToCartWithQty({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image }}'), 'Add to Cart')"
+                            onclick="requireLogin(() => addToCartWithQty({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.get_image_url }}'), 'Add to Cart')"
                             style="flex: 1; padding: 1rem; font-size: 1rem; border-radius: 10px;">
                         🛒 Add to Cart
                     </button>
                     <button class="btn btn-secondary"
-                            onclick="requireLogin(() => openBuyNowModal({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.image }}'), 'Buy Now')"
+                            onclick="requireLogin(() => openBuyNowModal({{ product.id }}, '{{ product.name|escapejs }}', {{ product.price }}, '{{ product.get_image_url }}'), 'Buy Now')"
                             style="flex: 1; padding: 1rem; font-size: 1rem; border-radius: 10px;">
                         ⚡ Buy Now
                     </button>

@@ -3,6 +3,9 @@ from django.db import migrations
 
 
 def translate_audit_logs(apps, schema_editor):
+    import os
+    if os.environ.get('DB_ENGINE', '').startswith('django.db.backends.sqlite3'):
+        return
     with schema_editor.connection.cursor() as c:
         # ── Action field ──
         c.execute("UPDATE audit_logs SET action = 'Inventory Restocked' WHERE action = '补货入库'")

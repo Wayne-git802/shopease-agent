@@ -1,0 +1,141 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}AI Dashboard - ShopEase{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/ai.css">
+{% endblock %}
+
+{% block content %}
+<div class="container" style="padding-top: 2rem;">
+    <h1 class="ai-page-title">📊 运营仪表盘</h1>
+
+    <div class="ai-dash-tabs">
+        <button class="ai-dash-tab active" onclick="switchDashTab('health')">💚 系统健康</button>
+        <button class="ai-dash-tab" onclick="switchDashTab('alerts')">🚨 告警列表</button>
+        <button class="ai-dash-tab" onclick="switchDashTab('report')">📋 周度报告</button>
+    </div>
+
+    <div id="dashLoading" class="ai-loading">⏳ 加载中...</div>
+    <div id="dashContent" class="ai-dash-content"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let dashTab = 'health';
+
+function getHeaders() {
+    const h = {'Content-Type': 'application/json'};
+    const token = localStorage.getItem('access_token');
+    if (token) h['Authorization'] = 'Bearer ' + token;
+    return h;
+}
+
+async function callAiApi(message, queryType) {
+    const resp = await fetch('/api/agents/ai/', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({message, query_type: queryType})
+    });
+    return await resp.json();
+}
+
+function switchDashTab(tab) {
+    dashTab = tab;
+    document.querySelectorAll('.ai-dash-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.ai-dash-tab').forEach(b => {
+        if ((tab==='health' && b.textContent.includes('健康')) ||
+            (tab==='alerts' && b.textContent.includes('告警')) ||
+            (tab==='report' && b.textContent.includes('报告')))
+            b.classList.add('active');
+    });
+    loadDashContent();
+}
+
+async function loadDashContent() {
+    const content = document.getElementById('dashContent');
+    const loading = document.getElementById('dashLoading');
+    content.innerHTML = '';
+    loading.style.display = 'block';
+
+    try {
+        if (dashTab === 'health') await loadHealth(content);
+        else if (dashTab === 'alerts') await loadAlerts(content);
+        else if (dashTab === 'report') await loadReport(content);
+    } catch(e) {
+        content.innerHTML = '<div class="ai-error">加载失败: ' + e.message + '</div>';
+    }
+    loading.style.display = 'none';
+}
+
+async function loadHealth(container) {
+    const data = await callAiApi('系统健康检查', 'ops');
+    const health = (data.tool_results && data.tool_results.health) || {};
+    const status = health.status || 'unknown';
+    const statusClass = status === 'healthy' ? 'ok' : status === 'degraded' ? 'warn' : 'danger';
+    const statusText = status === 'healthy' ? '✅ 正常' : status === 'degraded' ? '⚠️ 降级' : '🔴 异常';
+    const checks = health.total_checks || health.total_findings || 0;
+    const summary = health.summary || data.tool_results || {};
+
+    container.innerHTML =
+        '<div class="ai-dash-grid">' +
+            '<div class="ai-dash-card"><div class="label">系统状态</div><div class="value ' + statusClass + '">' + statusText + '</div></div>' +
+            '<div class="ai-dash-card"><div class="label">检查项</div><div class="value">' + checks + '</div></div>' +
+        '</div>' +
+        '<pre style="background:#f8fafc;padding:1rem;border-radius:8px;font-size:0.9rem;line-height:1.6;white-space:pre-wrap;">' +
+        JSON.stringify(summary, null, 2) + '</pre>';
+}
+
+async function loadAlerts(container) {
+    const data = await callAiApi('查看告警列表', 'ops');
+    const findings = (data.tool_results && data.tool_results.findings) || [];
+    const alerts = findings.length > 0 ? findings : ((data.tool_results && data.tool_results.health && data.tool_results.health.alerts) || []);
+
+    if (alerts.length === 0) {
+        container.innerHTML = '<div class="ai-empty">✅ 无未解决告警</div>';
+        return;
+    }
+
+    let html = '<div style="margin-bottom:1rem;color:var(--text-muted);">共 ' + alerts.length + ' 条告警</div>';
+    alerts.forEach(a => {
+        const sev = a.severity || 'info';
+        const emoji = sev === 'critical' ? '🔴' : sev === 'warning' ? '🟡' : '🟢';
+        html += '<div class="ai-alert-item ' + sev + '">' +
+            '<strong>' + emoji + ' ' + (a.title || a.name || '告警') + '</strong>' +
+            '<div style="font-size:0.85rem;color:var(--text-muted);margin-top:0.25rem;">#' + (a.id || '') + ' | ' + (a.created_at || '') + '</div>' +
+        '</div>';
+    });
+    container.innerHTML = html;
+}
+
+async function loadReport(container) {
+    const data = await callAiApi('生成周度运营报告', 'analytics');
+    const md = data.reply || (data.tool_results && data.tool_results.analytics && data.tool_results.analytics.report) || '暂无报告数据';
+
+    // Simple markdown to HTML
+    let html = md
+        .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+        .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+        .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\|(.+)\|/g, function(m) {
+            if (m.includes('---')) return '';
+            const cells = m.split('|').filter(c => c.trim());
+            const isHeader = !html.includes('<tr>');
+            const tag = isHeader ? 'th' : 'td';
+            return '<tr>' + cells.map(c => '<' + tag + '>' + c.trim() + '</' + tag + '>').join('') + '</tr>';
+        })
+        .replace(/(<tr>.*<\/tr>\n?)+/g, '<table>$&</table>')
+        .replace(/- (.*$)/gm, '<li>$1</li>')
+        .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+        .replace(/\n\n/g, '<br><br>');
+
+    container.innerHTML = '<div class="ai-dash-report">' + html + '</div>';
+}
+
+// Initial load
+loadDashContent();
+</script>
+{% endblock %}

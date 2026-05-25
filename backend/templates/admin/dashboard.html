@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard - ShopEase{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/admin.css">
+{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <!-- Banner -->
+    <div class="admin-banner">
+        <h1 class="admin-title">Admin Dashboard</h1>
+        <div class="admin-breadcrumb">
+            <a href="/manage/">Dashboard</a>
+        </div>
+    </div>
+
+    <!-- Alert Banner -->
+    <div id="alertBanner" class="alert-banner" style="display: none;">
+        ⚠️ <span id="alertText"></span>
+    </div>
+
+    <!-- Stat Cards -->
+    <div class="stat-cards" id="statCards">
+        <div class="stat-card">
+            <div class="stat-label">平台总订单数 (30天)</div>
+            <div class="stat-value" id="statOrders">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">活跃商家数</div>
+            <div class="stat-value" id="statSellers">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">待审核商品数</div>
+            <div class="stat-value" id="statPendingProducts">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">用户总数</div>
+            <div class="stat-value" id="statUsers">-</div>
+        </div>
+    </div>
+
+    <!-- Recent Orders Table -->
+    <div class="section-card">
+        <h2 class="section-title">最近订单</h2>
+        <table class="data-table" id="recentOrdersTable">
+            <thead>
+                <tr>
+                    <th>订单号</th>
+                    <th>买家</th>
+                    <th>卖家</th>
+                    <th>金额</th>
+                    <th>状态</th>
+                    <th>时间</th>
+                </tr>
+            </thead>
+            <tbody id="recentOrdersBody">
+                <tr><td colspan="6" class="text-muted">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- System Health -->
+    <div class="section-card">
+        <h2 class="section-title">系统健康 (AI Agent)</h2>
+        <div class="health-grid" id="healthGrid">
+            <div class="health-item">
+                <div class="health-value" id="healthP95">-</div>
+                <div class="health-label">P95 Latency (ms)</div>
+            </div>
+            <div class="health-item">
+                <div class="health-value" id="healthAvg">-</div>
+                <div class="health-label">Avg Latency (ms)</div>
+            </div>
+            <div class="health-item">
+                <div class="health-value" id="healthRouting">-</div>
+                <div class="health-label">Routing Quality</div>
+            </div>
+            <div class="health-item">
+                <div class="health-value" id="healthFast">-</div>
+                <div class="health-label">Fast Ratio (&lt;2s)</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+fetch('/manage/api/overview/')
+    .then(r => r.json())
+    .then(d => {
+        document.getElementById('statOrders').textContent = d.total_orders.toLocaleString();
+        document.getElementById('statSellers').textContent = d.active_sellers.toLocaleString();
+        document.getElementById('statPendingProducts').textContent = d.pending_products.toLocaleString();
+        document.getElementById('statUsers').textContent = d.total_users.toLocaleString();
+
+        // Alert banner
+        var alerts = [];
+        if (d.pending_products > 0) alerts.push(d.pending_products + ' items pending review');
+        if (d.pending_shops > 0) alerts.push(d.pending_shops + ' shops pending approval');
+        if (alerts.length > 0) {
+            document.getElementById('alertBanner').style.display = 'block';
+            document.getElementById('alertText').textContent = 'Pending: ' + alerts.join(', ');
+        }
+
+        // Recent orders
+        var tbody = document.getElementById('recentOrdersBody');
+        tbody.innerHTML = '';
+        d.recent_orders.forEach(function(o) {
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + o.order_no + '</td>' +
+                '<td>' + o.buyer + '</td>' +
+                '<td>' + o.seller + '</td>' +
+                '<td>&yen;' + o.amount.toFixed(2) + '</td>' +
+                '<td><span class="status-tag status-' + o.status.toLowerCase() + '">' + o.status + '</span></td>' +
+                '<td>' + o.created_at + '</td>';
+            tbody.appendChild(tr);
+        });
+
+        // Health
+        document.getElementById('healthP95').textContent = d.health.p95_latency + ' ms';
+        document.getElementById('healthAvg').textContent = d.health.avg_latency + ' ms';
+        document.getElementById('healthRouting').textContent = d.health.routing_quality + '%';
+        document.getElementById('healthFast').textContent = d.health.fast_ratio + '%';
+    })
+    .catch(function() {
+        document.querySelectorAll('.stat-value').forEach(function(el) { el.textContent = 'Error'; });
+    });
+</script>
+{% endblock %}

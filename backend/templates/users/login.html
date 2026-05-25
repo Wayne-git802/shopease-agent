@@ -115,8 +115,16 @@ document.getElementById('login-form').addEventListener('submit', async function(
             credentials: 'include'  // 包含 cookie
         });
         
-        // 跳转到首页或之前页面
-        const redirectUrl = new URLSearchParams(window.location.search).get('next') || '/';
+        const data = await response.json();
+        
+        // 跳转：admin 去管理面板，普通用户去首页或 next 参数
+        let redirectUrl = '/';
+        const nextParam = new URLSearchParams(window.location.search).get('next');
+        if (data.is_staff) {
+            redirectUrl = '/manage/';
+        } else if (nextParam) {
+            redirectUrl = nextParam;
+        }
         window.location.href = redirectUrl;
     } catch (error) {
         console.error('Login error:', error);

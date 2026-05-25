@@ -3,6 +3,9 @@ from django.db import migrations
 
 def seed_change_log(apps, schema_editor):
     """从 inventory_transactions + orders + audit_logs 导入历史数据到 change_log"""
+    import os
+    if os.environ.get('DB_ENGINE', '').startswith('django.db.backends.sqlite3'):
+        return  # skip on SQLite
     ChangeLog = apps.get_model('admin_api', 'ChangeLog')
     batch = []
 

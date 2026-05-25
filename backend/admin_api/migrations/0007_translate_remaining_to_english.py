@@ -3,6 +3,9 @@ from django.db import migrations
 
 
 def translate_remaining(apps, schema_editor):
+    import os
+    if os.environ.get('DB_ENGINE', '').startswith('django.db.backends.sqlite3'):
+        return
     with schema_editor.connection.cursor() as c:
         # ADJUSTMENT: {product} 变动 {qty} → {product} adjusted {qty}
         c.execute("UPDATE audit_logs SET description = REPLACE(description, ' 变动 ', ' adjusted ') WHERE description LIKE '% 变动 %'")

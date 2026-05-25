@@ -59,7 +59,7 @@
             <div class="order-card-body">
                 {% for item in order.items.all %}
                 <div class="order-item-row">
-                    <img src="{{ item.product.image|default:'https://via.placeholder.com/72' }}"
+                    <img src="{{ item.product.get_image_url }}"
                          alt="{{ item.product.name }}"
                          class="order-item-img"
                          onclick="window.location.href='/products/{{ item.product.id }}/'">
@@ -75,10 +75,10 @@
                             {% if item.id in reviewed_item_ids %}
                             <button class="btn-outline-sm" disabled style="opacity:0.5;">✓ Reviewed</button>
                             {% else %}
-                            <button class="btn-outline-sm" onclick="openReviewModal({{ item.product.id }}, {{ item.id }}, '{{ item.product.name|escapejs }}', '{{ item.product.image|default:""|escapejs }}')">Review</button>
+                            <button class="btn-outline-sm" onclick="openReviewModal({{ item.product.id }}, {{ item.id }}, '{{ item.product.name|escapejs }}', '{{ item.product.get_image_url|escapejs }}')">Review</button>
                             {% endif %}
-                            <button class="btn-primary-sm" onclick="addToCart({{ item.product.id }}, '{{ item.product.name|escapejs }}', {{ item.product.price }}, '{{ item.product.image|escapejs }}')">Add to Cart</button>
-                            <button class="btn-dark-sm" onclick="buyAgain({{ item.product.id }}, '{{ item.product.name|escapejs }}', {{ item.product.price }}, '{{ item.product.image|escapejs }}')">Buy Again</button>
+                            <button class="btn-primary-sm" onclick="addToCart({{ item.product.id }}, '{{ item.product.name|escapejs }}', {{ item.product.price }}, '{{ item.product.get_image_url|escapejs }}')">Add to Cart</button>
+                            <button class="btn-dark-sm" onclick="buyAgain({{ item.product.id }}, '{{ item.product.name|escapejs }}', {{ item.product.price }}, '{{ item.product.get_image_url|escapejs }}')">Buy Again</button>
                         </div>
                     </div>
                     <div style="text-align: right; white-space: nowrap; align-self: flex-start;">
@@ -161,7 +161,7 @@ const ordersData = {
             {
                 product_id: {{ item.product.id }},
                 name: '{{ item.product.name|escapejs }}',
-                image: '{{ item.product.image|default:""|escapejs }}',
+                image: '{{ item.product.get_image_url|escapejs }}',
                 price: '{{ item.price }}',
                 quantity: {{ item.quantity }},
                 total: '{{ item.total_price }}',
@@ -186,7 +186,7 @@ function showOrderDetail(orderId) {
                      class="order-item-img" onclick="window.location.href='/products/${item.product_id}/'"
                      style="width:56px;height:56px;">
                 <div class="order-item-info" style="flex:1;">
-                    <a href="/products/${item.product_id}/" class="order-item-name" target="_blank">${item.name}</a>
+                    <a href="/products/${item.product_id}/" class="order-item-name">${item.name}</a>
                     <div class="order-item-meta">¥${item.price}</div>
                 </div>
                 <div style="text-align:center; min-width:60px;">
@@ -430,7 +430,7 @@ async function submitReview() {
         const jwtToken = localStorage.getItem('access_token');
         const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
 
-        const response = await fetch('/api/products/' + productId + '/reviews/', {
+        const response = await fetch('/api/products/' + productId + '/reviews/create/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

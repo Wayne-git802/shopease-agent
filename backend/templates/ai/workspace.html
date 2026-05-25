@@ -1,0 +1,655 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}AI Workspace — ShopEase{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/ai.css' %}?v=20260524">
+{% endblock %}
+
+{% block content %}
+<div class="workspace-container">
+    <header class="workspace-header">
+        <h1>🤖 AI Workspace</h1>
+        <p class="workspace-subtitle">Ask anything — search, recommendations, analytics, all in one place</p>
+    </header>
+
+    <!-- Chat Conversation -->
+    <div id="chatContainer" class="chat-container">
+        <div id="chatEmpty" class="chat-empty">
+            <div class="empty-icon">💬</div>
+            <h3>Your AI shopping assistant</h3>
+            <div class="suggestion-chips">
+                <button class="chip" onclick="useSuggestion('Recommend a budget laptop for a college student')">💻 Budget laptop</button>
+                <button class="chip" onclick="useSuggestion('Compare iPhone vs Samsung flagship phones')">📱 Phone comparison</button>
+                <button class="chip" onclick="useSuggestion('What are the best-selling products this month?')">🔥 Best sellers</button>
+                <button class="chip" onclick="useSuggestion('Find me headphones under $100 with good reviews')">🎧 Budget headphones</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Banner -->
+    <div id="errorBanner" class="error-area hidden">
+        <span class="error-icon">⚠️</span>
+        <span id="errorText"></span>
+        <button class="btn btn-outline btn-sm" onclick="dismissError()">Dismiss</button>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="chat-toolbar">
+        <button id="chatClearBtn" class="chat-clear-btn" onclick="clearConversation()">🗑 Clear chat</button>
+        <span id="messageCount" class="chat-time" style="font-size:0.75rem"></span>
+    </div>
+
+    <!-- Input Area -->
+    <div class="workspace-input-area">
+        <textarea
+            id="workspaceInput"
+            class="workspace-input"
+            placeholder="e.g. Recommend a tablet for a statistics student..."
+            rows="2"
+            autofocus
+        ></textarea>
+        <button id="workspaceSubmit" class="workspace-submit-btn" onclick="submitWorkspace()">
+            <span id="submitIcon">➤</span>
+            <span id="submitSpinner" class="spinner-hidden"></span>
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ═══════════════════════════════════════════
+// Message Schema
+// ═══════════════════════════════════════════
+// {
+//   id: string,
+//   role: "user" | "assistant",
+//   content: string,
+//   session_id: string,
+//   intent: string,
+//   timestamp: number,
+//   artifacts: [{type: "products"|"runtime"|"clarify"|"explain", payload: object}]
+// }
+
+// ═══════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════
+const STORAGE_KEY = 'shopease_chat_history';
+let persistedMessages = [];   // saved to localStorage
+let ephemeralMessages = [];  // thinking only, NEVER persisted
+let currentSessionId = '';
+
+function conversation() {
+    return [...persistedMessages, ...ephemeralMessages];
+}
+
+// ═══════════════════════════════════════════
+// Persistence
+// ═══════════════════════════════════════════
+function loadMessages() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+            persistedMessages = JSON.parse(raw);
+        }
+    } catch (e) {
+        persistedMessages = [];
+    }
+}
+
+function saveMessages() {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedMessages));
+    } catch (e) {
+        // localStorage full — silently ignore
+    }
+    updateToolbar();
+}
+
+function clearConversation() {
+    if (!confirm('Clear all messages? This cannot be undone.')) return;
+    persistedMessages = [];
+    ephemeralMessages = [];
+    currentSessionId = '';
+    saveMessages();
+    renderConversation();
+}
+
+function updateToolbar() {
+    const count = persistedMessages.filter(m => m.role === 'user').length;
+    const el = document.getElementById('messageCount');
+    if (el) {
+        el.textContent = count > 0 ? `${count} question${count > 1 ? 's' : ''}` : '';
+    }
+    const clearBtn = document.getElementById('chatClearBtn');
+    if (clearBtn) {
+        clearBtn.style.visibility = persistedMessages.length > 0 ? 'visible' : 'hidden';
+    }
+}
+
+// ═══════════════════════════════════════════
+// Render
+// ═══════════════════════════════════════════
+function renderConversation() {
+    const container = document.getElementById('chatContainer');
+    const empty = document.getElementById('chatEmpty');
+    const msgs = conversation();
+
+    // Clear all message DOM nodes (preserve empty state)
+    container.querySelectorAll('.chat-message').forEach(el => el.remove());
+
+    if (msgs.length === 0) {
+        empty.classList.remove('hidden');
+        return;
+    }
+
+    empty.classList.add('hidden');
+    msgs.forEach(msg => {
+        const el = renderMessage(msg);
+        container.appendChild(el);
+    });
+
+    // Auto-scroll to bottom
+    container.scrollTop = container.scrollHeight;
+}
+
+function renderMessage(msg) {
+    const row = document.createElement('div');
+    row.className = `chat-message ${msg.role}`;
+
+    // Avatar
+    const avatar = document.createElement('div');
+    avatar.className = 'chat-avatar';
+    avatar.textContent = msg.role === 'user' ? '👤' : '🤖';
+    row.appendChild(avatar);
+
+    // Bubble wrapper
+    const wrapper = document.createElement('div');
+    wrapper.style.maxWidth = msg.role === 'user' ? '75%' : '85%';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble';
+
+    if (msg._pending) {
+        // Thinking indicator
+        bubble.innerHTML = '<div class="chat-thinking"><span class="chat-thinking-dot"></span><span class="chat-thinking-dot"></span><span class="chat-thinking-dot"></span></div>';
+    } else {
+        bubble.innerHTML = formatMarkdown(msg.content);
+    }
+
+    wrapper.appendChild(bubble);
+
+    // Artifacts (assistant only, non-pending)
+    if (msg.role === 'assistant' && !msg._pending && msg.artifacts && msg.artifacts.length > 0) {
+        const artContainer = document.createElement('div');
+        artContainer.className = 'chat-artifacts';
+        msg.artifacts.forEach(art => {
+            const artEl = renderArtifact(art);
+            if (artEl) artContainer.appendChild(artEl);
+        });
+        wrapper.appendChild(artContainer);
+    }
+
+    // Meta line
+    const meta = document.createElement('div');
+    meta.className = 'chat-meta';
+    if (msg.intent && !msg._pending) {
+        const tag = document.createElement('span');
+        tag.className = `chat-intent-tag intent-${msg.intent}`;
+        tag.textContent = msg.intent;
+        meta.appendChild(tag);
+    }
+    const time = document.createElement('span');
+    time.className = 'chat-time';
+    time.textContent = formatTime(msg.timestamp);
+    meta.appendChild(time);
+    wrapper.appendChild(meta);
+
+    row.appendChild(wrapper);
+    return row;
+}
+
+function renderArtifact(artifact) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'block-item';
+
+    switch (artifact.type) {
+        case 'products':
+            wrapper.classList.add('block-product-cards');
+            renderProductCards(wrapper, artifact.payload);
+            break;
+        case 'runtime':
+            renderRuntimePanelInline(wrapper, artifact.payload);
+            break;
+        case 'clarify':
+            wrapper.classList.add('block-clarify');
+            renderClarifyBlock(wrapper, artifact.payload);
+            break;
+        case 'explain':
+            wrapper.classList.add('block-explain');
+            renderExplainBlock(wrapper, artifact.payload);
+            break;
+        default:
+            return null;
+    }
+    return wrapper;
+}
+
+function formatTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const now = new Date();
+    const h = d.getHours().toString().padStart(2, '0');
+    const m = d.getMinutes().toString().padStart(2, '0');
+    if (d.toDateString() === now.toDateString()) return `${h}:${m}`;
+    return `${d.getMonth()+1}/${d.getDate()} ${h}:${m}`;
+}
+
+// ═══════════════════════════════════════════
+// Submit Flow
+// ═══════════════════════════════════════════
+async function submitWorkspace() {
+    const input = document.getElementById('workspaceInput');
+    const query = input.value.trim();
+
+    if (!query) return;
+    if (ephemeralMessages.length > 0) return;  // already loading
+
+    // 1. Push user message → persisted
+    const userMsg = {
+        id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36),
+        role: 'user',
+        content: query,
+        session_id: currentSessionId,
+        intent: '',
+        timestamp: Date.now(),
+        artifacts: []
+    };
+    persistedMessages.push(userMsg);
+    saveMessages();
+    input.value = '';
+    input.style.height = 'auto';
+
+    // 2. Push thinking → ephemeral
+    ephemeralMessages.push({
+        id: 'thinking',
+        role: 'assistant',
+        content: '',
+        session_id: '',
+        intent: '',
+        timestamp: Date.now(),
+        artifacts: [],
+        _pending: true
+    });
+
+    renderConversation();
+    setLoading(true);
+
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+    try {
+        const response = await fetch('/api/agents/ai/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify({
+                message: query,
+                session_id: currentSessionId || void 0,
+                history: persistedMessages.filter(m => !m._pending).slice(-10).map(m => ({
+                    role: m.role,
+                    content: m.content
+                })),
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Server responded with ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Save session_id for round-trips
+        if (data.session_id) {
+            currentSessionId = data.session_id;
+        }
+
+        // Build artifacts array from API response
+        const artifacts = [];
+        // Products from blocks
+        if (data.blocks) {
+            data.blocks.forEach(block => {
+                if (block.type === 'product_card') {
+                    artifacts.push({ type: 'products', payload: block.data });
+                } else if (block.type === 'clarify') {
+                    artifacts.push({ type: 'clarify', payload: block.data });
+                } else if (block.type === 'explain') {
+                    artifacts.push({ type: 'explain', payload: block.data });
+                }
+            });
+        }
+        // Runtime trace
+        if (data.runtime) {
+            artifacts.push({ type: 'runtime', payload: { runtime: data.runtime, explain: data.explain, retrieval: data.retrieval } });
+        }
+
+        // 3. Pop ephemeral, push real assistant message
+        ephemeralMessages = [];
+        const assistantMsg = {
+            id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36),
+            role: 'assistant',
+            content: data.reply || '',
+            session_id: data.session_id || currentSessionId,
+            intent: data.intent || '',
+            timestamp: Date.now(),
+            artifacts: artifacts
+        };
+        persistedMessages.push(assistantMsg);
+        saveMessages();
+
+        renderConversation();
+        setLoading(false);
+
+        // Track eval
+        trackEval({
+            session_id: currentSessionId,
+            query_type: data.intent || '',
+            event_type: 'impression',
+            duration_ms: data.runtime ? data.runtime.total_ms : 0,
+            success: data.blocks && data.blocks.length > 0
+        });
+
+    } catch (err) {
+        // 3. (error) Pop ephemeral, show error
+        ephemeralMessages = [];
+        renderConversation();
+
+        const errorEl = document.getElementById('errorBanner');
+        const errorText = document.getElementById('errorText');
+        errorText.textContent = 'AI service is currently unavailable. Please try again later.';
+        errorEl.classList.remove('hidden');
+
+        setLoading(false);
+    }
+}
+
+function setLoading(loading) {
+    const submitBtn = document.getElementById('workspaceSubmit');
+    const icon = document.getElementById('submitIcon');
+    const spinner = document.getElementById('submitSpinner');
+    const input = document.getElementById('workspaceInput');
+
+    if (loading) {
+        submitBtn.disabled = true;
+        icon.classList.add('hidden');
+        spinner.classList.remove('spinner-hidden');
+        spinner.classList.add('spinner-visible');
+        input.disabled = true;
+    } else {
+        submitBtn.disabled = false;
+        icon.classList.remove('hidden');
+        spinner.classList.remove('spinner-visible');
+        spinner.classList.add('spinner-hidden');
+        input.disabled = false;
+        input.focus();
+    }
+}
+
+// ═══════════════════════════════════════════
+// Suggestion Chips
+// ═══════════════════════════════════════════
+function useSuggestion(text) {
+    document.getElementById('workspaceInput').value = text;
+    submitWorkspace();
+}
+
+function dismissError() {
+    document.getElementById('errorBanner').classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════
+// Block Renderers (reused from original)
+// ═══════════════════════════════════════════
+function renderProductCards(container, data) {
+    const products = data.products || data.items || data || [];
+    if (!Array.isArray(products) || products.length === 0) {
+        container.innerHTML = '<p class="block-text">No products found.</p>';
+        return;
+    }
+
+    const grid = document.createElement('div');
+    grid.className = 'workspace-product-grid';
+
+    products.slice(0, 12).forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'workspace-product-card';
+
+        const reason = p.reason ? `<span class="wp-reason">💡 ${escapeHtml(p.reason)}</span>` : '';
+
+        card.innerHTML = `
+            <div class="wp-card-media">
+                <div class="product-placeholder" data-name="${escapeHtml(p.name || 'Product')}">
+                    ${(p.name || 'P')[0].toUpperCase()}
+                </div>
+            </div>
+            <div class="wp-card-body">
+                <h4 class="wp-card-title">${escapeHtml(p.name || 'Untitled')}</h4>
+                ${p.rating ? `<span class="wp-card-rating">⭐ ${p.rating}</span>` : ''}
+                <span class="wp-card-price">¥${p.price || '--'}</span>
+                ${reason}
+            </div>
+        `;
+
+        if (p.id || p.product_id) {
+            card.style.cursor = 'pointer';
+            card.setAttribute('data-product-id', p.id || p.product_id);
+            card.onclick = function() {
+                trackEval({
+                    session_id: currentSessionId,
+                    query_type: 'recommend',
+                    event_type: 'click',
+                    product_id: parseInt(this.getAttribute('data-product-id')) || null,
+                    outcome_type: 'clicked',
+                    success: true
+                });
+                window.location.href = '/products/' + (p.id || p.product_id) + '/';
+            };
+        }
+
+        grid.appendChild(card);
+    });
+
+    container.appendChild(grid);
+}
+
+function renderClarifyBlock(container, data) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'clarify-wrapper';
+
+    const question = document.createElement('p');
+    question.className = 'clarify-question';
+    question.textContent = '💬 ' + (data.question || 'Please confirm:');
+    wrapper.appendChild(question);
+
+    if (data.options && data.options.length > 0) {
+        const chipRow = document.createElement('div');
+        chipRow.className = 'clarify-options';
+        data.options.forEach(opt => {
+            const chip = document.createElement('button');
+            chip.className = 'clarify-chip';
+            chip.textContent = '¥' + opt;
+            chip.onclick = function() {
+                document.getElementById('workspaceInput').value = opt;
+                submitWorkspace();
+            };
+            chipRow.appendChild(chip);
+        });
+        wrapper.appendChild(chipRow);
+    }
+
+    const skip = document.createElement('button');
+    skip.className = 'clarify-skip';
+    skip.textContent = 'Skip';
+    skip.onclick = function() {
+        document.getElementById('workspaceInput').value = 'skip';
+        submitWorkspace();
+    };
+    wrapper.appendChild(skip);
+
+    container.appendChild(wrapper);
+}
+
+function renderExplainBlock(container, data) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'explain-wrapper';
+
+    const summary = document.createElement('p');
+    summary.className = 'explain-summary';
+    summary.textContent = '💡 ' + (data.summary || 'Why recommend these?');
+    wrapper.appendChild(summary);
+
+    if (data.items && data.items.length > 0) {
+        const list = document.createElement('ul');
+        list.className = 'explain-list';
+        data.items.slice(0, 5).forEach(item => {
+            const li = document.createElement('li');
+            li.className = 'explain-item';
+            const reasons = (item.reasons || []).map(r => `<span class="explain-tag">${r}</span>`).join(' ');
+            li.innerHTML = `<strong>${escapeHtml(item.name)}</strong> ${reasons}`;
+            list.appendChild(li);
+        });
+        wrapper.appendChild(list);
+    }
+
+    container.appendChild(wrapper);
+}
+
+// ═══════════════════════════════════════════
+// Runtime Panel (inline version for artifacts)
+// ═══════════════════════════════════════════
+function renderRuntimePanelInline(container, data) {
+    const runtime = data.runtime;
+    const explain = data.explain;
+    const retrieval = data.retrieval;
+
+    if (!runtime && !explain && !retrieval) return;
+
+    const panel = document.createElement('div');
+    panel.className = 'runtime-panel';
+    panel.style.marginTop = '0';
+
+    const header = document.createElement('div');
+    header.className = 'runtime-header';
+    header.innerHTML = `<span>🔍 AI analysis</span><span class="runtime-total">${runtime && runtime.total_ms ? runtime.total_ms + 'ms' : ''}</span><span class="runtime-toggle">▼</span>`;
+    header.onclick = function() { panel.classList.toggle('collapsed'); };
+    panel.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'runtime-body';
+
+    // Timeline
+    if (runtime && runtime.phases && runtime.phases.length > 0) {
+        const timeline = document.createElement('div');
+        timeline.className = 'runtime-timeline';
+        runtime.phases.forEach(p => {
+            const row = document.createElement('div');
+            row.className = 'rt-phase';
+            const statusIcon = p.status === 'fallback' ? '⚠️' : (p.status === 'skip' ? '○' : '✓');
+            row.innerHTML =
+                '<span class="rt-dot rt-' + (p.status || 'ok') + '"></span>' +
+                '<span class="rt-label">' + escapeHtml(p.label) + '</span>' +
+                '<span class="rt-status">' + statusIcon + '</span>' +
+                '<span class="rt-ms">' + p.ms + 'ms</span>';
+            timeline.appendChild(row);
+        });
+        body.appendChild(timeline);
+    }
+
+    // Explain chips
+    if (explain && explain.factors && explain.factors.length > 0) {
+        const sec = document.createElement('div');
+        sec.className = 'explain-section';
+        sec.innerHTML = '<div class="explain-title">💡 ' + escapeHtml(explain.title || '') + '</div>' +
+            '<div class="explain-chips">' +
+            explain.factors.map(f => '<span class="explain-chip">' + escapeHtml(f.label) + '</span>').join('') +
+            '</div>';
+        body.appendChild(sec);
+    }
+
+    // Retrieval summary
+    if (retrieval && retrieval.detail) {
+        const sec = document.createElement('div');
+        sec.className = 'retrieval-summary';
+        sec.innerHTML =
+            '<div class="retrieval-icon">🔎</div>' +
+            '<div class="retrieval-text">' +
+            '<span class="retrieval-summary-text">' + escapeHtml(retrieval.summary || '') + '</span>' +
+            '<span class="retrieval-detail-text">' + escapeHtml(retrieval.detail) + '</span>' +
+            '</div>';
+        body.appendChild(sec);
+    }
+
+    panel.appendChild(body);
+    container.appendChild(panel);
+}
+
+// ═══════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════
+function formatMarkdown(text) {
+    if (!text) return '';
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/`(.+?)`/g, '<code>$1</code>')
+        .replace(/\n/g, '<br>');
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function trackEval(data) {
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+    fetch('/api/agents/eval/track/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+        },
+        body: JSON.stringify(data),
+    }).catch(function() { /* silent */ });
+}
+
+// ═══════════════════════════════════════════
+// Keyboard
+// ═══════════════════════════════════════════
+document.getElementById('workspaceInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitWorkspace();
+    }
+});
+
+// Auto-resize textarea
+document.getElementById('workspaceInput').addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+});
+
+// ═══════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════
+loadMessages();
+renderConversation();
+updateToolbar();
+</script>
+{% endblock %}

@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}AI Recommendations - ShopEase{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/ai.css">
+{% endblock %}
+
+{% block content %}
+<div class="container" style="padding-top: 2rem;">
+    <h1 class="ai-page-title">🎯 AI 智能推荐</h1>
+
+    <div class="ai-rec-tabs">
+        <button class="ai-rec-tab active" onclick="switchTab('popular')">🔥 热门商品</button>
+        <button class="ai-rec-tab" onclick="switchTab('for-you')">💝 为你推荐</button>
+        <button class="ai-rec-tab" onclick="switchTab('trending')">📈 趋势商品</button>
+        <button class="ai-rec-tab" onclick="switchTab('similar')">🔍 相似商品</button>
+    </div>
+
+    <div id="recSimilarInput" class="ai-rec-similar-input" style="display:none;">
+        <input type="number" id="similarProductId" placeholder="输入商品ID" min="1">
+        <button onclick="loadSimilar()">查找相似</button>
+    </div>
+
+    <div id="recLoading" class="ai-loading" style="display:none;">⏳ 加载中...</div>
+    <div id="recError" class="ai-error" style="display:none;"></div>
+    <div id="recGrid" class="ai-rec-grid"></div>
+    <div id="recEmpty" class="ai-empty" style="display:none;">暂无推荐数据</div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentTab = 'popular';
+
+function getHeaders() {
+    const h = {'Content-Type': 'application/json'};
+    const token = localStorage.getItem('access_token');
+    if (token) h['Authorization'] = 'Bearer ' + token;
+    return h;
+}
+
+function switchTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.ai-rec-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.ai-rec-tab').forEach(b => {
+        if (b.textContent.includes(tab === 'popular' ? '热门' : tab === 'for-you' ? '为你' : tab === 'trending' ? '趋势' : '相似'))
+            b.classList.add('active');
+    });
+    document.getElementById('recSimilarInput').style.display = tab === 'similar' ? 'flex' : 'none';
+    loadRecommendations();
+}
+
+async function loadRecommendations() {
+    const grid = document.getElementById('recGrid');
+    const loading = document.getElementById('recLoading');
+    const error = document.getElementById('recError');
+    const empty = document.getElementById('recEmpty');
+
+    grid.innerHTML = '';
+    error.style.display = 'none';
+    empty.style.display = 'none';
+    loading.style.display = 'block';
+
+    if (currentTab === 'similar') return; // handled separately by loadSimilar()
+
+    const body = {message: '', query_type: currentTab};
+    try {
+        const resp = await fetch('/api/agents/ai/', {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(body)
+        });
+        const data = await resp.json();
+        loading.style.display = 'none';
+
+        // Use tool_results.products (full product dicts) or fall back to ranked_items
+        const products = (data.tool_results && data.tool_results.products) || [];
+        if (products.length > 0) {
+            renderProductCards(grid, products);
+        } else {
+            // Fallback: ranked_items only has {id, score, source} — show simple list
+            const ranked = data.ranked_items || [];
+            if (ranked.length === 0) { empty.style.display = 'block'; return; }
+            ranked.forEach(r => {
+                const card = document.createElement('div');
+                card.className = 'ai-rec-card';
+                card.innerHTML =
+                    '<span class="ai-rec-reason">推荐</span>' +
+                    '<div class="ai-rec-name">商品 #' + r.id + '</div>' +
+                    '<div style="margin-top:0.5rem;"><span class="ai-rec-price">匹配度: ' + Math.round(r.score * 100) + '%</span></div>';
+                grid.appendChild(card);
+            });
+        }
+    } catch(e) {
+        loading.style.display = 'none';
+        error.textContent = '加载失败，请稍后重试';
+        error.style.display = 'block';
+    }
+}
+
+function renderProductCards(grid, products) {
+    products.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'ai-rec-card';
+        card.innerHTML =
+            '<span class="ai-rec-reason">' + (p.reason || '推荐') + '</span>' +
+            '<div class="ai-rec-name">' + (p.name || '商品') + '</div>' +
+            '<div class="ai-rec-category">' + (p.category || '') + '</div>' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.5rem;">' +
+                '<span class="ai-rec-price">¥' + (p.price || '0') + '</span>' +
+                '<span class="ai-rec-rating">⭐ ' + (p.rating || '0') + '</span>' +
+            '</div>';
+        grid.appendChild(card);
+    });
+}
+
+async function loadSimilar() {
+    const pid = document.getElementById('similarProductId').value;
+    if (!pid) return;
+
+    const grid = document.getElementById('recGrid');
+    const loading = document.getElementById('recLoading');
+    const empty = document.getElementById('recEmpty');
+    grid.innerHTML = '';
+    empty.style.display = 'none';
+    loading.style.display = 'block';
+
+    try {
+        const resp = await fetch('/api/agents/ai/', {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({message: '', query_type: 'similar', product_id: pid})
+        });
+        const data = await resp.json();
+        loading.style.display = 'none';
+        const products = (data.tool_results && data.tool_results.products) || [];
+        if (products.length === 0) { empty.style.display = 'block'; return; }
+        renderProductCards(grid, products);
+    } catch(e) {
+        loading.style.display = 'none';
+    }
+}
+
+// Initial load
+loadRecommendations();
+</script>
+{% endblock %}

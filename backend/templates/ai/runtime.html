@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}AI Runtime — ShopEase{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/ai.css' %}?v=20260523">
+{% endblock %}
+
+{% block content %}
+<div class="workspace-container">
+    <header class="workspace-header">
+        <h1>📊 AI Runtime</h1>
+        <p class="workspace-subtitle">Latency, fallback rate, intent distribution</p>
+    </header>
+
+    <!-- Metric Cards -->
+    <div class="runtime-metrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+        <div class="runtime-card">
+            <div class="runtime-card-value">{{ avg_latency_ms }}<span class="runtime-card-unit">ms</span></div>
+            <div class="runtime-card-label">平均延迟</div>
+        </div>
+        <div class="runtime-card">
+            <div class="runtime-card-value">{{ fallback_rate }}<span class="runtime-card-unit">%</span></div>
+            <div class="runtime-card-label">回退率</div>
+        </div>
+        <div class="runtime-card">
+            <div class="runtime-card-value">{{ clarify_success_rate }}<span class="runtime-card-unit">%</span></div>
+            <div class="runtime-card-label">追问成功率 <span style="font-size:0.7rem;color:var(--text-muted);">(触发 {{ clarify_trigger_rate }}%)</span></div>
+        </div>
+    </div>
+
+    <!-- Recent Requests -->
+    <section style="margin-bottom: 2rem;">
+        <h3 style="font-size:1.1rem;font-weight:600;margin-bottom:1rem;">⏱ 最近请求</h3>
+        {% if recent_events %}
+        <div class="runtime-table-wrap">
+            <table class="runtime-table">
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>意图</th>
+                        <th>耗时</th>
+                        <th>结果</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ev in recent_events %}
+                    <tr>
+                        <td>{{ ev.created_at|date:"H:i:s" }}</td>
+                        <td><span class="intent-badge intent-{{ ev.query_type|default:'chatting' }}">{{ ev.query_type|default:'chat' }}</span></td>
+                        <td>{{ ev.duration_ms|default:'--' }}ms</td>
+                        <td>{% if ev.success %}✅{% else %}○{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state" style="padding:2rem;">
+            <p style="color:var(--text-muted);">暂无数据。开始在 AI Workspace 中使用 AI 功能后，这里会显示运行数据。</p>
+        </div>
+        {% endif %}
+    </section>
+
+    <!-- Intent Distribution -->
+    <section>
+        <h3 style="font-size:1.1rem;font-weight:600;margin-bottom:1rem;">📊 意图分布</h3>
+        {% if intents %}
+        <div class="bar-chart">
+            {% for intent in intents %}
+            <div class="bar-row">
+                <span class="bar-label">{{ intent.query_type }}</span>
+                <div class="bar-track">
+                    <div class="bar-fill" style="width: {% widthratio intent.count intent_total 100 %}%;"></div>
+                </div>
+                <span class="bar-pct">{% widthratio intent.count intent_total 100 %}%</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state" style="padding:2rem;">
+            <p style="color:var(--text-muted);">暂无数据。</p>
+        </div>
+        {% endif %}
+    </section>
+
+    <div style="margin-top:2rem;text-align:center;">
+        <a href="/ai/workspace/" class="btn btn-primary">🤖 打开 AI Workspace</a>
+    </div>
+</div>
+{% endblock %}

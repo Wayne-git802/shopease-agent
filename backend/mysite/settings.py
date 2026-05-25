@@ -68,6 +68,7 @@ DATABASES = {
 }
 
 AUTH_USER_MODEL = 'users.User'
+LOGIN_URL = '/users/login/'
 
 AUTH_PASSWORD_VALIDATORS = []
 
@@ -78,6 +79,7 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [BASE_DIR / 'templates' / 'static']
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
@@ -97,8 +99,8 @@ REST_FRAMEWORK = {
 
 # ── AI Agent configuration ──────────────────────────────────────
 # LLM_MODE: "mock" (dev/test, free) | "production" (real DeepSeek)
-LLM_MODE = 'mock'
-DEEPSEEK_API_KEY = ''  # set via .env in production
+LLM_MODE = 'production'
+DEEPSEEK_API_KEY = 'sk-775951309dd3404c80c0dac5a4fa14ae'
 DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1'
 DEEPSEEK_MODEL = 'deepseek-chat'
 LLM_TIMEOUT_SECONDS = 30

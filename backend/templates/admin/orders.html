@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}订单监控 - ShopEase Admin{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/admin.css">
+{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <div class="admin-banner">
+        <h1 class="admin-title">订单监控</h1>
+        <div class="admin-breadcrumb">
+            <a href="/manage/">Dashboard</a> / 订单监控
+        </div>
+    </div>
+
+    <div class="section-card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>订单号</th>
+                    <th>买家</th>
+                    <th>卖家</th>
+                    <th>金额</th>
+                    <th>状态</th>
+                    <th>时间</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for o in orders %}
+                <tr>
+                    <td>{{ o.order_no }}</td>
+                    <td>{{ o.user.display_name|default:o.user.username }}</td>
+                    <td>
+                        {% with items=o.items.all %}
+                        {% if items %}
+                            {{ items.0.product.shop.shop_name|default:"-" }}
+                        {% else %}
+                            -
+                        {% endif %}
+                        {% endwith %}
+                    </td>
+                    <td>&yen;{{ o.total_amount }}</td>
+                    <td>
+                        <span class="status-tag status-{{ o.status }}">
+                            {{ o.get_status_display }}
+                        </span>
+                    </td>
+                    <td>{{ o.created_at|date:"Y-m-d H:i" }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6" class="text-muted">暂无订单</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% include "admin/includes/pagination.html" with page_obj=orders %}
+    </div>
+</div>
+{% endblock %}

@@ -75,6 +75,22 @@
         </div>
         {% endfor %}
     </div>
+
+    <!-- Pagination -->
+    {% if shops.has_other_pages %}
+    <div style="display: flex; justify-content: center; gap: 0.5rem; margin-top: 2rem;">
+        {% if shops.has_previous %}
+            <a href="?page=1" class="btn btn-outline">&laquo; First</a>
+            <a href="?page={{ shops.previous_page_number }}" class="btn btn-outline">Prev</a>
+        {% endif %}
+        <span class="btn" style="background: var(--background);">Page {{ shops.number }} of {{ shops.paginator.num_pages }}</span>
+        {% if shops.has_next %}
+            <a href="?page={{ shops.next_page_number }}" class="btn btn-outline">Next</a>
+            <a href="?page={{ shops.paginator.num_pages }}" class="btn btn-outline">Last &raquo;</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
     {% else %}
     <div class="empty-state">
         <h3>No shops available yet</h3>

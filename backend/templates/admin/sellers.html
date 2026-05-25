@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}商家管理 - ShopEase Admin{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/admin.css">
+{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <div class="admin-banner">
+        <h1 class="admin-title">商家管理</h1>
+        <div class="admin-breadcrumb">
+            <a href="/manage/">Dashboard</a> / 商家管理
+        </div>
+    </div>
+
+    <div class="section-card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>店铺名</th>
+                    <th>店主</th>
+                    <th>商品数</th>
+                    <th>状态</th>
+                    <th>注册时间</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for shop in sellers %}
+                <tr>
+                    <td>{{ shop.shop_id }}</td>
+                    <td><a href="/shop/{{ shop.shop_id }}/">{{ shop.shop_name }}</a></td>
+                    <td>{{ shop.user.display_name|default:shop.user.username }}</td>
+                    <td>{{ shop.product_count }}</td>
+                    <td>
+                        <span class="status-tag status-{{ shop.status }}">
+                            {{ shop.get_status_display }}
+                        </span>
+                    </td>
+                    <td>{{ shop.created_at|date:"Y-m-d H:i" }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6" class="text-muted">暂无商家</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% include "admin/includes/pagination.html" with page_obj=sellers %}
+    </div>
+</div>
+{% endblock %}

@@ -23,7 +23,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _BACKEND_DIR = _HERE
 for _ in range(4):
     _BACKEND_DIR = os.path.dirname(_BACKEND_DIR)
-DATA_DIR = r'C:\Users\admin\Desktop\ShopEase\data_new'
+from pathlib import Path as _Path
+DATA_DIR = str(_Path(__file__).resolve().parents[4] / 'data(1)')  # shop_agent/data(1)/
 
 
 def read_csv(filename):

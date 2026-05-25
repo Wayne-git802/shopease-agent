@@ -5,6 +5,9 @@ from django.db import migrations, models
 
 def migrate_change_log_data(apps, schema_editor):
     """用原始 SQL 将 change_log 数据迁移到 audit_logs"""
+    import os
+    if os.environ.get('DB_ENGINE', '').startswith('django.db.backends.sqlite3'):
+        return  # skip on SQLite
     with schema_editor.connection.cursor() as c:
         c.execute('SELECT COUNT(*) FROM change_log')
         count = c.fetchone()[0]
