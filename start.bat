@@ -70,7 +70,7 @@ if errorlevel 1 goto :backend_error
 echo [4/7] Migrating database and installing data...
 "%PYTHON%" manage.py migrate --noinput
 if errorlevel 1 goto :backend_error
-"%PYTHON%" ensure_data.py
+"%PYTHON%" ..\scripts\data\ensure_data.py
 if errorlevel 1 goto :backend_error
 
 echo [5/7] Installing frontend dependencies...
@@ -83,7 +83,7 @@ if errorlevel 1 (
 )
 
 echo [6/7] Starting backend and frontend servers...
-start "ShopEase Backend" /D "%BACKEND%" cmd /k RUN_BACKEND_SERVER.bat
+start "ShopEase Backend" /D "%BACKEND%" cmd /k ..\scripts\server\start_server.bat
 timeout /t 2 /nobreak >nul
 start "ShopEase Frontend" /D "%FRONTEND%" cmd /k RUN_FRONTEND_SERVER.bat
 

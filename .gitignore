@@ -13,6 +13,11 @@ Thumbs.db
 .idea/
 .vscode/
 *.log
+*.pid
+logs/
+backend/db.sqlite3
+backend/data/faiss_index.bin
+backend/data/faiss_id_map.json
 *.zip
 *.7z
 *.rar

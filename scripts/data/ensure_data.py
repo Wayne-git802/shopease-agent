@@ -16,9 +16,13 @@ from products.models import Product
 from users.models import User
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data(1)"
-PASSWORD_SYNC_MARKER = Path(__file__).resolve().parent / ".csv_passwords_synced"
+BASE_DIR = Path(__file__).resolve().parent.parent.parent  # project root
+DATA_DIR = BASE_DIR / "data" / "seed"
+PASSWORD_SYNC_MARKER = BASE_DIR / "data" / ".csv_passwords_synced"
+
+# Add backend/ to sys.path so Django can find mysite.settings
+import sys
+sys.path.insert(0, str(BASE_DIR / "backend"))
 
 
 def fast_password_hash(raw_password):
