@@ -93,6 +93,7 @@ class DeepSeekClient(LLMClient):
                     headers=headers,
                     json=payload,
                     timeout=self.timeout,
+                    proxies={'http': None, 'https': None},
                 )
                 if resp.status_code == 429:
                     raise LLMRateLimitError("DeepSeek rate limit exceeded")

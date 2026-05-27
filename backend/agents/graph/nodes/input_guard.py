@@ -19,9 +19,68 @@ Usage:
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from typing import Literal
 
 RoutingSignal = Literal["chat", "search", "recommend"]
+
+
+# ═══════════════════════════════════════════════════════════════
+# Conversation Signals — contextual modifiers
+# ═══════════════════════════════════════════════════════════════
+
+@dataclass
+class ConversationSignals:
+    """Contextual conversation signals detected from query structure.
+    
+    Strengths are floats (0.0–1.0) for future weak-signal support.
+    Currently 0.0 or 1.0, but interface allows gradual values.
+    """
+    capability: float = 0.0         # "你能推荐吗"
+    stop: float = 0.0               # "别推荐了" "算了"
+    ack: float = 0.0                # "嗯嗯" "好的"
+    negative_feedback: float = 0.0  # "不推荐这个"
+
+    def any_signal(self) -> bool:
+        return any([
+            self.capability > 0, self.stop > 0,
+            self.ack > 0, self.negative_feedback > 0,
+        ])
+
+    def to_dict(self) -> dict:
+        return {
+            "capability": self.capability,
+            "stop": self.stop,
+            "ack": self.ack,
+            "negative_feedback": self.negative_feedback,
+        }
+
+
+@dataclass
+class ScoreAdjustment:
+    """A single signal → score adjustment, for trace/debug."""
+    signal: str
+    delta: float
+
+
+@dataclass 
+class IntentScore:
+    """Final intent score with full adjustment chain preserved."""
+    intent: str
+    base_confidence: float
+    adjusted_confidence: float
+    adjustments: list[ScoreAdjustment] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "intent": self.intent,
+            "base_confidence": round(self.base_confidence, 3),
+            "adjusted_confidence": round(self.adjusted_confidence, 3),
+            "adjustments": [
+                {"signal": a.signal, "delta": round(a.delta, 3)}
+                for a in self.adjustments
+            ],
+        }
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -257,3 +316,77 @@ def is_search_intent(query: str) -> bool:
 def is_purchase_intent(query: str) -> bool:
     """Quick check: is this a purchase/recommend query?"""
     return classify(query) == "recommend"
+
+
+# ═══════════════════════════════════════════════════════════════
+# Conversation Signal Detector
+# ═══════════════════════════════════════════════════════════════
+
+# Patterns are deliberately generic — they match on sentence structure,
+# not specific commerce keywords. This avoids growing a keyword blacklist.
+
+_CAPABILITY_PATTERNS: list[str] = [
+    r"(你能|你可以|你会|你能帮我).{0,6}(吗|么|不)",
+    r"(can|could)\s+you.{0,15}\?",
+]
+
+_STOP_PATTERNS: list[str] = [
+    r"(别|不要|不用|不想).{0,3}(了|啦)",
+    r"^(算了|不用了|不要了)$",
+]
+
+_ACK_PATTERNS: list[str] = [
+    r"^(嗯+|哦+|好[的吧]?|ok|yes|对|是的|可以|行)$",
+]
+
+_NEGATIVE_PATTERNS: list[str] = [
+    r"(不|别).{0,2}(推荐|建议|喜欢|好|行)",
+    r"(这个|那个).{0,2}(不|别).{0,2}(好|行|推荐)",
+]
+
+
+def _has_product_signal(query: str) -> bool:
+    """Check if query contains product nouns or price constraints."""
+    if _has_nouns(PRODUCT_NOUNS, query.lower()):
+        return True
+    # Price patterns
+    if re.search(r'\d+\s*(元|块|块钱|以内|以下)', query):
+        return True
+    if re.search(r'(under|below|within)\s*\d+', query.lower()):
+        return True
+    return False
+
+
+def detect_conversation_signals(query: str) -> ConversationSignals:
+    """Detect conversational signals from query structure.
+    
+    Pure function — no LLM, no DB, no side effects.
+    Returns ConversationSignals with float strengths (0.0 or 1.0).
+    """
+    if not query or not query.strip():
+        return ConversationSignals()
+    
+    normalized = query.strip()
+    has_product = _has_product_signal(query)
+    
+    signals = ConversationSignals()
+    
+    # ── Capability question ──
+    if any(re.search(p, normalized) for p in _CAPABILITY_PATTERNS):
+        # With product → weak signal only
+        # Without product → strong "what can you do" question
+        signals.capability = 0.3 if has_product else 1.0
+    
+    # ── Stop action ──
+    if any(re.search(p, normalized) for p in _STOP_PATTERNS):
+        signals.stop = 1.0
+    
+    # ── Acknowledgement ──
+    if any(re.search(p, normalized) for p in _ACK_PATTERNS):
+        signals.ack = 1.0
+    
+    # ── Negative feedback ──
+    if any(re.search(p, normalized) for p in _NEGATIVE_PATTERNS):
+        signals.negative_feedback = 0.8
+    
+    return signals

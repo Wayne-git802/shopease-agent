@@ -3,9 +3,11 @@ Orchestrator — single entry point for the LangGraph AI commerce system.
 
 Usage:
     from agents.graph.orchestrator import run
-
-    response = run(query="推荐一款手机", user_id=42)
 """
+
+from __future__ import annotations
+
+import time as _time
 from .state import AgentState, ChatMessage, UserMemory, PurchaseSummary
 from .memory import memory_manager
 from .trace import persist_trace, RuntimeTrace, PhaseRecord, NODE_TO_PHASE, PHASE_LABELS
@@ -51,6 +53,77 @@ _SANITIZE_REPLACEMENT = (
     "如需人工帮助，请查看商品页面的商家联系方式。"
     "退款或取消订单需要通过订单页面操作，我会引导你完成确认流程。"
 )
+
+# ── Conversation Signal → Confidence adjustment table ──────────
+# Keys: signal_name → delta when has_product=False / has_product=True
+
+_SIGNAL_DELTA: dict[str, tuple[float, float]] = {
+    "capability":        (-1.00, -0.10),  # without product → force to 0 (chat)
+    "stop":              (-0.70, -0.70),  # always blocks
+    "ack":               (-0.40, -0.40),  # always blocks
+    "negative_feedback": (-0.30, -0.20),  # slightly less blocky with product
+}
+
+_COMMERCE_CONFIDENCE_THRESHOLD = 0.25  # below → route to chat
+
+
+def apply_signals(
+    commerce_result,           # IntentResult from commerce_intent.classify()
+    signals,                   # ConversationSignals
+) -> IntentScore:
+    """Fuse conversation signals into commerce confidence.
+    
+    Pure function — does not mutate inputs.
+    Returns IntentScore with base_confidence preserved + adjustment chain.
+    """
+    from .nodes.input_guard import (
+        IntentScore, ScoreAdjustment, ConversationSignals,
+    )
+
+    base = commerce_result.confidence if commerce_result else 0.0
+    intent = commerce_result.intent if commerce_result else "chat"
+
+    # Look up product signal once
+    from .nodes.input_guard import _has_product_signal
+    query = getattr(commerce_result, '_query', '') if commerce_result else ''
+    has_product = _has_product_signal(query) if query else False
+
+    adjustments: list[ScoreAdjustment] = []
+    adjusted = base
+
+    # Apply each active signal
+    signal_map = {
+        "capability":        signals.capability,
+        "stop":              signals.stop,
+        "ack":               signals.ack,
+        "negative_feedback": signals.negative_feedback,
+    }
+
+    for name, strength in signal_map.items():
+        if strength > 0:
+            # Choose delta based on product presence
+            delta_no_product, delta_with_product = _SIGNAL_DELTA[name]
+            delta = delta_with_product if has_product else delta_no_product
+            delta *= strength  # scale by signal strength
+            adjusted += delta
+            adjustments.append(ScoreAdjustment(
+                signal=f"{name}({strength})",
+                delta=round(delta, 3),
+            ))
+
+    # Clamp
+    adjusted = max(0.0, min(1.0, adjusted))
+
+    # If below threshold, force chat
+    if adjusted < _COMMERCE_CONFIDENCE_THRESHOLD:
+        adjusted = 0.0
+
+    return IntentScore(
+        intent=intent,
+        base_confidence=round(base, 3),
+        adjusted_confidence=round(adjusted, 3),
+        adjustments=adjustments,
+    )
 
 
 def _sanitize_response(text: str) -> str:
@@ -154,7 +227,7 @@ def run(query: str, user_id: int | None = None,
                     return result
                 break
 
-    from .state_router import route as state_router, _pick_template
+    from .state_router import route as state_router, _pick_template, RouteDecision
 
     conv_state = get_conv_state(session_id) if session_id else None
     route = state_router(query, conv_state)
@@ -166,6 +239,24 @@ def run(query: str, user_id: int | None = None,
         state.normalized_query = normalize_query(query)
 
     state.control_context = route.control_context
+
+    # ── Input Guard: ConversationSignals — gate BEFORE commerce layer ──
+    # Detects capability queries ("你能推荐吗"), stop/backtrack ("算了"),
+    # ack ("嗯嗯"), negative feedback ("不推荐这个").
+    # Without product signals → bypass commerce entirely → chat.
+    if route.needs_commerce_layer:
+        from .nodes.input_guard import detect_conversation_signals, _has_product_signal
+        conv_signals = detect_conversation_signals(query)
+        state.parallel_results["_conversation_signals"] = conv_signals.to_dict()
+        if conv_signals.any_signal() and not _has_product_signal(query):
+            route = RouteDecision(
+                intent="chat",
+                confidence=0.6,
+                reason=f"Input Guard: conv_signal detected",
+                needs_commerce_layer=False,
+                execution_hint="lightweight",
+                control_context=route.control_context,
+            )
 
     # ── 2. Commerce Layer (only when needed) ──
     commerce_result = None
