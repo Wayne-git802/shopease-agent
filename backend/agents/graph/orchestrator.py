@@ -202,7 +202,8 @@ def run(query: str, user_id: int | None = None,
         history: list[dict] | None = None,
         session_id: str = "",
         query_type: str = "",
-        product_id: str = "") -> dict:
+        product_id: str = "",
+        display_id: str = "") -> dict:
     """Run the full LangGraph pipeline and return structured data.
 
     Returns a dict with: reply, intent, confidence, ranked_items, tool_results.
@@ -248,6 +249,10 @@ def run(query: str, user_id: int | None = None,
     # Pass product_id for similar-product recommendations
     if product_id:
         state.parallel_results["similar_product_id"] = product_id
+
+    # Store display_id for CartAgent context resolution
+    if display_id:
+        state.parallel_results["display_id"] = display_id
 
     # ── 1. State Router — Single Routing Authority ──
     # Replaces Preprocessor + Input Guard. One decision point.
@@ -351,6 +356,25 @@ def run(query: str, user_id: int | None = None,
             result["query_type"] = query_type
             result["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
             return result
+
+    # ── 2.7 CartAgent routing ──
+    if commerce_result and commerce_result.intent == "cart" and commerce_result.confidence >= 0.3:
+        from agents.cart.agent import run as run_cart_agent
+        did = state.parallel_results.get("display_id", "")
+        result = run_cart_agent(query=query, user_id=user_id, session_id=session_id,
+                                display_id=did)
+        result["session_id"] = session_id
+        result["query_type"] = query_type
+        result["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
+        # Check for handoff signal
+        if result.get("_handoff") == "purchase" or result.get("status") == "handoff":
+            from agents.purchase.agent import run as run_purchase_agent
+            pr = run_purchase_agent(query="结算", user_id=user_id, session_id=session_id)
+            pr["session_id"] = session_id
+            pr["query_type"] = query_type
+            pr["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
+            return pr
+        return result
 
     # ── 3. Response Policy — reads FinalDecision (single truth) ──
     from .response_policy import plan as policy_plan
@@ -708,7 +732,19 @@ def run(query: str, user_id: int | None = None,
 
     # Product cards
     if state.intent in ("recommend", "search") and state.tool_results.get("products"):
-        blocks.append(UIBlock(type="product_card", data={"products": state.tool_results["products"]}))
+        products = state.tool_results["products"]
+        # Write DisplayContext for CartAgent reference resolution
+        import uuid as _uuid
+        did = f"disp_{_uuid.uuid4().hex[:12]}"
+        try:
+            from .display_context import put_display
+            put_display(did, state.intent, products)
+        except Exception:
+            pass
+        blocks.append(UIBlock(type="product_card", data={
+            "products": products,
+            "display_id": did,
+        }))
     elif state.intent in ("recommend", "search"):
         # Fallback: no products found — expand to popular items
         blocks.append(UIBlock(type="message", data={

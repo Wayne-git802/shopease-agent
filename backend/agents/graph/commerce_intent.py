@@ -49,6 +49,11 @@ SIGNALS: dict[str, dict[str, set[str]]] = {
         "medium": {"礼物", "热门", "流行", "适合", "gift", "popular", "我想买", "我要买"},
         "weak":   {"哪个好", "选哪个", "怎么样", "帮我挑", "推荐一下", "买", "购买"},
     },
+    "cart": {
+        "strong": {"加入购物车", "加购", "加购物车", "add to cart"},
+        "medium": {"购物车", "看看购物车", "cart", "view cart", "先存着", "收藏"},
+        "weak":   {"存起来", "先留着", "先加进去"},
+    },
     "order": {
         "strong": {"订单", "退款", "退货", "物流", "order", "refund", "return"},
         "medium": {"物流", "取消", "发货", "track", "cancel", "下单", "买了"},

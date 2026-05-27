@@ -116,6 +116,7 @@ def ai_entry(request):
     session_id = serializer.validated_data.get('session_id') or str(_uuid.uuid4())[:12]
     query_type = request.data.get('query_type', '')
     product_id = str(request.data.get('product_id', ''))
+    display_id = request.data.get('display_id', '')
     user_id = request.user.id if request.user.is_authenticated else None
 
     from agents.graph.orchestrator import run as run_graph
@@ -140,7 +141,7 @@ def ai_entry(request):
     try:
         result = run_graph(query=query, user_id=user_id, session_id=session_id,
                           query_type=query_type, product_id=product_id,
-                          history=history)
+                          display_id=display_id, history=history)
         assistant_reply = result.get('reply', '')
         assistant_blocks = result.get('blocks', [])
     except Exception as e:
