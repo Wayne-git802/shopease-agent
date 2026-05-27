@@ -26,6 +26,47 @@ class UnrecoverableError(Exception):
     """Graph failed and fallback also failed."""
 
 
+# ── Capability-Bounded Response Sanitizer ──────────────────────
+
+BANNED_PHRASES = [
+    "已为您转接",
+    "人工客服",
+    "稍后联系您",
+    "已经通知商家",
+    "已通知商家",
+    "仓库正在",
+    "优惠券已发放",
+    "退款已到账",
+    "已帮您退款",
+    "退款成功",
+    "已经退款",
+    "已取消订单",
+    "已为您取消",
+    "已发货",
+    "正在打包",
+    "物流已更新",
+]
+
+_SANITIZE_REPLACEMENT = (
+    "如需人工帮助，请查看商品页面的商家联系方式。"
+    "退款或取消订单需要通过订单页面操作，我会引导你完成确认流程。"
+)
+
+
+def _sanitize_response(text: str) -> str:
+    """Check and rewrite responses that claim non-existent capabilities."""
+    if not text:
+        return text
+    for phrase in BANNED_PHRASES:
+        if phrase in text:
+            import logging
+            logging.getLogger("orchestrator").warning(
+                f"Banned phrase detected: '{phrase}' — sanitizing response"
+            )
+            return _SANITIZE_REPLACEMENT
+    return text
+
+
 def run(query: str, user_id: int | None = None,
         history: list[dict] | None = None,
         session_id: str = "",
@@ -400,6 +441,9 @@ def run(query: str, user_id: int | None = None,
         ui_state = UIState.CLARIFYING
 
     message = state.ui_message or UI_STATE_MESSAGES.get(ui_state, "")
+
+    # ── Capability-bound safety check ──
+    state.final_response = _sanitize_response(state.final_response or "")
 
     # ── 7.5 Phase A: Runtime Trace (product cognition timeline) ──
     rt = RuntimeTrace()
