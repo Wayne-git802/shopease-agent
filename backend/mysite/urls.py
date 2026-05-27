@@ -6,7 +6,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 
-from templates.views import (
+from views import (
     home, product_list, product_detail,
     cart, user_login, user_register, user_logout, profile,
     order_list, checkout, shop_list, shop,
