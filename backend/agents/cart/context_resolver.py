@@ -35,7 +35,7 @@ class ResolvedReference:
     resolved: bool
     source: str             # "display" | "cart" | "none"
     scope_id: str           # display_id or "cart_{user_id}"
-    product_id: int | None
+    product_id: int | None = None
     name: str = ""
     index: int = 0
     error: str = ""

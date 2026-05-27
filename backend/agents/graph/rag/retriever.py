@@ -68,9 +68,9 @@ class Retriever(RetrieverProtocol):
         django.setup()
         from products.models import Product
 
-        products = Product.objects.filter(is_active=True).values_list('id', 'name')
-        ids = [pid for pid, _ in products]
-        texts = [name for _, name in products]
+        products = Product.objects.filter(is_active=True).values_list('id', 'name', 'description')
+        ids = [pid for pid, _, _ in products]
+        texts = [f"{name} {desc}" if desc else name for _, name, desc in products]
         if ids:
             vectors = embed_batch(texts)
             get_store().build(ids, vectors)
