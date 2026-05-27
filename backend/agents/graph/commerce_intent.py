@@ -144,6 +144,12 @@ def classify(query: str) -> IntentResult:
         boost = max(0.18, 0.10 * best_score)
         best_score = min(best_score + boost, 0.95)
 
+    # ── 7. No concrete product → conversation, not execution ──
+    # "推荐礼物" has intent but no specific category → lower confidence
+    # so ResponsePolicy routes to llm_direct (dialogue) instead of graph.
+    if best_intent in ("search", "recommend") and not has_product_noun(query):
+        best_score *= 0.5
+
     return IntentResult(
         intent=best_intent,
         confidence=best_score,
