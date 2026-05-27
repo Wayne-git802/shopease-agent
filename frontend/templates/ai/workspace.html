@@ -68,7 +68,11 @@ function buildArtifacts(meta) {
     const artifacts = [];
     const blocks = meta.blocks || [];
     blocks.forEach(block => {
-        if (block.type === 'product_card') artifacts.push({type: 'products', payload: block.data});
+        if (block.type === 'product_card') {
+            artifacts.push({type: 'products', payload: block.data});
+            if (block.data.display_id) currentDisplayId = block.data.display_id;
+        }
+        else if (block.type === 'cart_card') artifacts.push({type: 'cart_card', payload: block.data});
         else if (block.type === 'clarify') artifacts.push({type: 'clarify', payload: block.data});
         else if (block.type === 'explain') artifacts.push({type: 'explain', payload: block.data});
         else if (block.type === 'confirm_dialog') artifacts.push({type: 'confirm_dialog', payload: block.data});
@@ -97,6 +101,7 @@ function getCSRF() {
 let currentSessionId = '';
 let persistedMessages = [];
 let ephemeralMessages = [];
+let currentDisplayId = '';                  // for CartAgent context
 let sessions = [];
 
 function conversation() {
@@ -373,7 +378,9 @@ async function submitWorkspace() {
             body: JSON.stringify({
                 message: query,
                 session_id: currentSessionId,
-                history: history
+                history: history,
+                display_id: currentDisplayId,
+                request_id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)
             }),
         });
 
@@ -384,7 +391,11 @@ async function submitWorkspace() {
         const artifacts = [];
         if (data.blocks) {
             data.blocks.forEach(block => {
-                if (block.type === 'product_card') artifacts.push({type: 'products', payload: block.data});
+                if (block.type === 'product_card') {
+                    artifacts.push({type: 'products', payload: block.data});
+                    if (block.data.display_id) currentDisplayId = block.data.display_id;
+                }
+                else if (block.type === 'cart_card') artifacts.push({type: 'cart_card', payload: block.data});
                 else if (block.type === 'clarify') artifacts.push({type: 'clarify', payload: block.data});
                 else if (block.type === 'explain') artifacts.push({type: 'explain', payload: block.data});
                 else if (block.type === 'confirm_dialog') artifacts.push({type: 'confirm_dialog', payload: block.data});
