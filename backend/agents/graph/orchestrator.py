@@ -88,10 +88,10 @@ def run(query: str, user_id: int | None = None,
     # Handles context-dependent queries like "第一个" / "确认" / "算了"
     # that state_router would misclassify as greeting/chat/unclear.
     if session_id:
-        from agents.order_agent.workflow_store import load as load_owf
+        from agents.order.workflow_store import load as load_owf
         owf = load_owf(session_id)
         if owf and owf.current_step != "idle":
-            from agents.order_agent.agent import run as run_order_agent
+            from agents.order.agent import run as run_order_agent
             result = run_order_agent(query=query, user_id=user_id, session_id=session_id)
             if not result.get("_fallback"):
                 result["session_id"] = session_id
@@ -100,11 +100,11 @@ def run(query: str, user_id: int | None = None,
                 return result
 
         # PurchaseAgent shortcut: if last assistant msg was a purchase confirm prompt
-        from agents.purchase_agent.agent import _get_recent_blocks
+        from agents.purchase.agent import _get_recent_blocks
         blocks = _get_recent_blocks(session_id, block_type="confirm_dialog")
         for b in blocks:
             if b.get("type") == "confirm_dialog" and b.get("data", {}).get("action") == "purchase":
-                from agents.purchase_agent.agent import run as run_purchase_agent
+                from agents.purchase.agent import run as run_purchase_agent
                 result = run_purchase_agent(query=query, user_id=user_id, session_id=session_id)
                 if not result.get("_fallback"):
                     result["session_id"] = session_id
@@ -134,7 +134,7 @@ def run(query: str, user_id: int | None = None,
 
     # ── 2.5 OrderAgent routing ──
     if commerce_result and commerce_result.intent == "order":
-        from agents.order_agent.agent import run as run_order_agent
+        from agents.order.agent import run as run_order_agent
         result = run_order_agent(query=query, user_id=user_id, session_id=session_id)
         result["session_id"] = session_id
         result["query_type"] = query_type
@@ -143,7 +143,7 @@ def run(query: str, user_id: int | None = None,
 
     # ── 2.6 PurchaseAgent routing ──
     if commerce_result and commerce_result.intent == "purchase" and commerce_result.confidence >= 0.3:
-        from agents.purchase_agent.agent import run as run_purchase_agent
+        from agents.purchase.agent import run as run_purchase_agent
         result = run_purchase_agent(query=query, user_id=user_id, session_id=session_id)
         if not result.get("_fallback"):
             result["session_id"] = session_id
@@ -495,7 +495,7 @@ def run(query: str, user_id: int | None = None,
         }))
         # Try popular as fallback
         try:
-            from agents.recommend.engine import RecommendEngine
+            from agents.commerce.engine import RecommendEngine
             engine = RecommendEngine()
             popular = engine.get_popular()
             if popular:

@@ -240,7 +240,7 @@ class RecommendEngine:
         Returns:
             [(product_orm, final_score, explain_dict), ...] sorted by score desc.
         """
-        from agents.recommend.score_fusion import fuse
+        from agents.commerce.score_fusion import fuse
         from products.models import Product
 
         # ── fetch candidate pool ──────────────────────────────

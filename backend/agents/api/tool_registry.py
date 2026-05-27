@@ -4,7 +4,7 @@ Import this module once at startup to register all customer service tools.
 """
 
 from agents.core.tool_registry import get_tool_registry, Tool
-from agents.customer_service.tools import (
+from agents.api.tools import (
     search_products, get_user_orders, get_return_policy, get_product_categories,
 )
 from agents.core.repos import find_products  # fallback

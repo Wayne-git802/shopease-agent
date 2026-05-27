@@ -12,7 +12,7 @@ from ..state import AgentState, RankedItem, NodeTrace
 from ..contracts import RecommendNodeInput, RecommendNodeOutput
 from ..session_memory import get as get_session_memory
 from ..contracts.product_domain import SLOT_BY_KEY, REQUIRED_SLOTS, MAX_CLARIFY_ROUNDS
-from agents.recommend.engine import RecommendEngine
+from agents.commerce.engine import RecommendEngine
 
 
 # ═══════════════════════════════════════════════════════════════

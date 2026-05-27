@@ -1,7 +1,7 @@
 """Prompt template loader with versioning and layered loading.
 
 Loads Jinja2 templates from disk.  Templates live in:
-  - agents/customer_service/prompts/  (agent-specific)
+  - agents/api/prompts/  (agent-specific)
   - agents/templates/prompts/         (shared across agents)
 
 Layered prompt strategy (architecture: 3-tier token saving):
@@ -33,9 +33,9 @@ _PROJECT_ROOT = _HERE.parent  # backend/agents/ (the agents package)
 
 DEFAULT_SEARCH_PATHS = [
     str(_PROJECT_ROOT / 'templates' / 'prompts'),
-    str(_PROJECT_ROOT / 'customer_service' / 'prompts'),
+    str(_PROJECT_ROOT / 'api' / 'prompts'),
     str(_PROJECT_ROOT / 'ops' / 'prompts'),
-    str(_PROJECT_ROOT / 'recommend' / 'prompts'),
+    str(_PROJECT_ROOT / 'commerce' / 'prompts'),
 ]
 
 

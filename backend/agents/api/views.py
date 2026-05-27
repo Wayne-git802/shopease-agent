@@ -19,7 +19,7 @@ from rest_framework.response import Response
 
 from agents.models import ConversationSession, AgentConversation
 from agents.permissions import IsAuthenticatedOrGuest, IsOwnerOrAdmin
-from agents.customer_service.agent import CustomerServiceAgent
+from agents.api.agent import CustomerServiceAgent
 from agents.core.base_agent import AgentContext
 
 logger = logging.getLogger(__name__)
