@@ -365,7 +365,7 @@ def run(query: str, user_id: int | None = None,
         reply = _pick_template(final_route.intent)
         if session_id and conv_state:
             conv_state.dialogue.last_user_query = _original_query
-            conv_state.dialogue.expects_followup = True  # template/llm_direct: gap left
+            conv_state.dialogue.expects_followup = False  # greeting: standalone, no gap
         return {
             "reply": reply, "intent": final_route.intent,
             "confidence": final_route.confidence, "ui_state": "done",
