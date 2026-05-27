@@ -228,6 +228,7 @@ class ConversationSession(models.Model):
     title           = models.CharField(max_length=200, default='', blank=True)
     last_message_at = models.DateTimeField(auto_now=True)
     created_at      = models.DateTimeField(auto_now_add=True)
+    last_purchase   = models.JSONField(default=dict, blank=True)  # {order_id, order_no, product_name, price, created_at}
 
     class Meta:
         db_table = 'conversation_sessions'

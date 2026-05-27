@@ -171,6 +171,26 @@ def ai_entry(request):
             except Exception:
                 pass
 
+            # ── Record last purchase context (for cross-refresh retrieval) ──
+            if result.get('agent_type') == 'purchase':
+                try:
+                    oc_block = next(
+                        (b for b in assistant_blocks if b.get('type') == 'order_created_card'),
+                        None
+                    )
+                    if oc_block:
+                        ConversationSession.objects.filter(
+                            session_id=session_id, user=request.user,
+                        ).update(last_purchase={
+                            'order_id': oc_block['data'].get('order_id'),
+                            'order_no': oc_block['data'].get('order_no', ''),
+                            'product_name': oc_block['data'].get('product_name', ''),
+                            'amount': oc_block['data'].get('amount', ''),
+                            'created_at': timezone.now().isoformat(),
+                        })
+                except Exception:
+                    pass
+
     return Response({
         'ui_state': result.get('ui_state', 'done'),
         'message': result.get('message', ''),

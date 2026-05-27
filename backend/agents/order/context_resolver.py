@@ -19,6 +19,7 @@ def resolve_reference(
     wf_state: OrderSessionState | None,
     visible_orders: list[dict],
     user_id: int | None = None,
+    session_id: str = "",
 ) -> dict:
     """
     Resolve a reference query against the current context.
@@ -37,6 +38,29 @@ def resolve_reference(
     if parsed.reference_value == "recent":
         if not user_id:
             return {"resolved": False, "order_id": None, "error": "需要登录"}
+
+        # 1) Check session context first (faster, no DB scan)
+        from agents.models import ConversationSession
+        from django.utils import timezone
+        cs = ConversationSession.objects.filter(
+            session_id=session_id,
+            user_id=user_id,
+        ).first()
+        if cs and cs.last_purchase and cs.last_purchase.get("order_id"):
+            lp = cs.last_purchase
+            created = lp.get("created_at", "")
+            # Only use if purchase was within last 30 minutes
+            if created:
+                try:
+                    from datetime import datetime, timedelta
+                    ct = datetime.fromisoformat(created)
+                    if timezone.now() - ct < timedelta(minutes=30):
+                        return {"resolved": True, "order_id": lp["order_id"],
+                                "matched_by": f"刚买的「{lp.get('product_name', '')}」"}
+                except (ValueError, TypeError):
+                    pass
+
+        # 2) Fallback: query user's most recent order
         from .repository import get_user_orders
         orders = get_user_orders(user_id)
         if not orders:

@@ -51,7 +51,7 @@ def run(query: str, user_id: int | None = None, session_id: str = "") -> dict:
 
     # Handle references ("第二个")
     if parsed.is_reference:
-        ref = resolve_reference(query, wf_state, wf_state.orders_snapshot, user_id=user_id)
+        ref = resolve_reference(query, wf_state, wf_state.orders_snapshot, user_id=user_id, session_id=session_id)
         if ref["resolved"]:
             wf_state.selected_order_id = ref["order_id"]
             wf_state.current_step = OrderStep.SELECTED

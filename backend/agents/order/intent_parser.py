@@ -37,6 +37,7 @@ _INTENT_KEYWORDS: dict[str, list[str]] = {
 _RECENT_ORDER_PATTERNS = [
     "刚才下单", "刚刚下单", "刚买的", "刚才买的", "刚才那个",
     "刚下的", "刚才的订单", "刚刚的订单", "最近下单", "最新的订单",
+    "刚才的", "刚才那个订单", "刚下的单",
 ]
 
 # Reference patterns
