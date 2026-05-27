@@ -15,7 +15,7 @@ from .graph_builder import get_graph
 from .fallback_graph import get_fallback_graph
 from .session_memory import get as get_session_memory, put as put_session_memory, clear as clear_session_memory
 from .session_memory import get_conv_state, put_conv_state, clear_conv_state
-from .preprocessor import build_conversation_state
+from .preprocessor import build_conversation_state, ConversationState
 from .contracts.ui_state import (
     UIState, AIResponse, UIBlock, NODE_TO_UI_STATE, UI_STATE_MESSAGES
 )
@@ -290,21 +290,17 @@ def run(query: str, user_id: int | None = None,
     _original_query = query   # saved for conversation state
 
     # ── Dialogue context merge ──
-    # If system left a gap (expects_followup) and user fills a short slot.
+    # If system left a gap (expects_followup), user input without strong
+    # intent is treated as a follow-up to the previous query.
     if conv_state and conv_state.dialogue.expects_followup:
-        if _is_low_information(query) and not _has_strong_intent(query):
-            # Slot fill — merge into query, then reset
+        if _has_strong_intent(query):
+            # Topic change — reset
+            conv_state.dialogue.expects_followup = False
+        else:
+            # Follow-up — merge with last user query, then reset
             query = f"{conv_state.dialogue.last_user_query} {query}"
             conv_state.dialogue.injected_slot = query  # trace
             conv_state.dialogue.expects_followup = False
-        elif _is_ambiguous(query):
-            # Ambiguous continuation — fallback merge
-            query = f"{conv_state.dialogue.last_user_query} {query}"
-            conv_state.dialogue.expects_followup = False
-        elif _has_strong_intent(query):
-            # Topic change — reset
-            conv_state.dialogue.expects_followup = False
-        # else: user said "不知道"/"随便" — keep expects_followup, let LLM handle
 
     route = state_router(query, conv_state)
 
@@ -363,9 +359,11 @@ def run(query: str, user_id: int | None = None,
     # ── Template path ──
     if plan.execution_mode == "template":
         reply = _pick_template(final_route.intent)
-        if session_id and conv_state:
+        if session_id:
+            conv_state = conv_state or ConversationState(session_id=session_id)
             conv_state.dialogue.last_user_query = _original_query
             conv_state.dialogue.expects_followup = False  # greeting: standalone, no gap
+            put_conv_state(conv_state)
         return {
             "reply": reply, "intent": final_route.intent,
             "confidence": final_route.confidence, "ui_state": "done",
@@ -392,9 +390,11 @@ def run(query: str, user_id: int | None = None,
                       show_budget_hint=False, show_clarify_hint=False,
                       session_id=session_id, query_type=query_type,
                       ranked_items=[], tool_results={})
-        if session_id and conv_state:
+        if session_id:
+            conv_state = conv_state or ConversationState(session_id=session_id)
             conv_state.dialogue.last_user_query = _original_query
             conv_state.dialogue.expects_followup = True  # LLM may have asked
+            put_conv_state(conv_state)
         return result
 
     # ── Graph path: memory → ConstraintParser → full_graph ──

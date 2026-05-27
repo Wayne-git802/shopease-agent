@@ -31,8 +31,8 @@ _KEYWORDS: dict[str, set[str]] = {
     "chat": {"thanks", "谢谢", "不用了", "你是谁", "天气", "新闻", "test", "测试",
              "how are you", "what can you do", "怎么用"},
     "commerce": {"搜索", "找", "推荐", "买", "耳机", "手机", "电脑", "订单", "退款",
-                 "物流", "取消", "发货", "价格", "recommend", "search", "buy", "order",
-                 "refund", "track", "cancel"},
+                 "物流", "取消", "发货", "价格", "送", "礼物", "送礼",
+                 "recommend", "search", "buy", "order", "refund", "track", "cancel"},
 }
 
 SESSION_TTL_SECONDS: int = 1800  # 30 minutes
