@@ -18,8 +18,8 @@ User = get_user_model()
 
 def home(request):
     """Home page with AI-powered featured products."""
-    from agents.recommend.engine import RecommendEngine
-    from agents.recommend.strategy_router import route
+    from agents.commerce.engine import RecommendEngine
+    from agents.commerce.strategy_router import route
 
     strategy, reason = route(request.user)
     engine = RecommendEngine()
