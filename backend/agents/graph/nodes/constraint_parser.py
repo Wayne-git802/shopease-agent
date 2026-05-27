@@ -1,7 +1,12 @@
 """
-ConstraintParser — unified entry point for query classification.
+SearchPlanBuilder — constraint extraction from a QueryFrame.
 
-Single function: `parse(query) -> SearchPlan`
+CONTRACT: SearchPlanBuilder ONLY extracts structured constraints.
+It accepts intent from IntentClassifier as INPUT, not as something to re-derive.
+
+Entry points:
+  - build_plan(frame)  → SearchPlan   (new, primary)
+  - parse(query)        → SearchPlan   (deprecated wrapper)
 
 Replaces scattered detection logic in:
   - orchestrator.sort_precheck
@@ -19,71 +24,78 @@ from typing import Optional
 
 from ..contracts.search_plan import (
     SearchPlan,
-    QueryIntent,
+    QueryFrame,
     RetrievalStrategy,
     SORT_PATTERNS,
     BUDGET_PATTERNS,
     CATEGORY_KEYWORDS,
-    RECOMMEND_TRIGGERS,
     normalize_query,
     parse_budget_band,
     VALID_SORT_FIELDS,
     VALID_DIRECTIONS,
 )
+from ..commerce_intent import IntentResult
 
 logger = logging.getLogger(__name__)
 
 
-def parse(query: str) -> SearchPlan:
-    """Parse a user query into a SearchPlan.
+def build_plan(frame: QueryFrame) -> SearchPlan:
+    """Build a SearchPlan from a QueryFrame.
 
-    Four-step pipeline:
-      1. Intent classification (regex → sort | recommend | ambiguous)
-      2. Sort field extraction (when intent=sort)
-      3. Budget band extraction
-      4. UX hint decisions
+    Extracts sort, budget, and category constraints from the query text.
+    Uses frame.intent.intent as the authoritative intent — does NOT re-derive it.
+
+    Pipeline:
+      1. Read authoritative intent from frame.intent.intent
+      2. Extract sort field + direction (regex)
+      3. Extract budget band
+      4. Extract category filter
+      5. Decide hints and strategy
 
     Args:
-        query: Raw user input (Chinese or English)
+        frame: QueryFrame with raw query, normalized query, and IntentResult
 
     Returns:
         SearchPlan with intent, sort, budget, hints resolved.
     """
-    normalized = normalize_query(query)
-    original = query
+    normalized = frame.normalized
+    original = frame.raw
 
-    # ── Step 1: Intent classification ──────────────────────────
-    intent, sort_by, direction = _classify_intent(normalized, original)
+    # ── Step 0: Authoritative intent from IntentClassifier ──────
+    intent_str = frame.intent.intent  # "search" | "recommend" | "order" | "analytics"
 
-    # ── Step 2: Budget extraction ──────────────────────────────
+    # ── Step 1: Sort extraction ─────────────────────────────────
+    sort_by, direction = _extract_sort(normalized)
+
+    # ── Step 2: Budget extraction ───────────────────────────────
     budget_band = _extract_budget(normalized, original)
 
-    # ── Step 3: Category extraction ────────────────────────────
+    # ── Step 3: Category extraction ─────────────────────────────
     category_filter = _extract_category(normalized)
 
-    # ── Step 4: Hint decisions ─────────────────────────────────
-    show_budget_hint = False
-    show_clarify_hint = False
-
-    if intent == QueryIntent.SORT:
-        # Hard constraint: no hints needed
-        pass
-    elif intent == QueryIntent.RECOMMEND:
-        show_budget_hint = not bool(budget_band)  # hint if budget not already set
-    elif intent == QueryIntent.AMBIGUOUS:
-        show_clarify_hint = True
-        show_budget_hint = True
-
-    # ── Build SearchPlan ───────────────────────────────────────
-
+    # ── Step 4: Strategy selection ──────────────────────────────
     strategy = (
         RetrievalStrategy.STRUCTURED_SORT
-        if intent == QueryIntent.SORT and sort_by
+        if sort_by
         else RetrievalStrategy.SEMANTIC
     )
 
+    # ── Step 5: Hint decisions ──────────────────────────────────
+    show_budget_hint = False
+    show_clarify_hint = False
+
+    if intent_str == "recommend":
+        show_budget_hint = not bool(budget_band)  # hint if budget not already set
+    elif intent_str == "order":
+        # Order intent: no search hints needed
+        pass
+    elif intent_str == "analytics":
+        # Analytics intent: no search hints needed
+        pass
+
+    # ── Build detail string ─────────────────────────────────────
     detail_parts = []
-    if intent == QueryIntent.SORT:
+    if sort_by:
         detail_parts.append(f"sort: {sort_by} {direction}")
     if budget_band:
         detail_parts.append(f"budget: {budget_band}")
@@ -91,7 +103,7 @@ def parse(query: str) -> SearchPlan:
         detail_parts.append("clarify_hint")
 
     return SearchPlan(
-        intent=intent,
+        intent=intent_str,
         sort_by=sort_by,
         direction=direction,
         category_filter=category_filter,
@@ -105,33 +117,43 @@ def parse(query: str) -> SearchPlan:
     )
 
 
+def parse(query: str) -> SearchPlan:
+    """Parse a user query into a SearchPlan.  [DEPRECATED]
+
+    Backward-compatible wrapper around build_plan().
+    Creates a minimal QueryFrame with a default IntentResult.
+
+    Prefer build_plan(frame) for new code.
+
+    Args:
+        query: Raw user input (Chinese or English)
+
+    Returns:
+        SearchPlan with intent, sort, budget, hints resolved.
+    """
+    normalized = normalize_query(query)
+    intent_result = IntentResult(intent="search", confidence=0.0, fallback="chat")
+    frame = QueryFrame(raw=query, normalized=normalized, intent=intent_result)
+    return build_plan(frame)
+
+
 # ═══════════════════════════════════════════════════════════════
 # Internal helpers
 # ═══════════════════════════════════════════════════════════════
 
-def _classify_intent(
-    normalized: str, original: str
-) -> tuple[str, Optional[str], Optional[str]]:
-    """Classify intent and extract sort fields.
+def _extract_sort(normalized: str) -> tuple[Optional[str], Optional[str]]:
+    """Extract sort field and direction from query text.
 
-    Priority order:
-      1. Check SORT_PATTERNS → intent=sort
-      2. Check RECOMMEND_TRIGGERS → intent=recommend
-      3. Check for pure sort keywords (price, rating, etc.) without triggers
-      4. Fallback → ambiguous
+    Checks SORT_PATTERNS and implicit sort patterns.
+    Does NOT re-derive intent — pure constraint extraction.
 
     Returns:
-        (intent, sort_by, direction)
+        (sort_by, direction) or (None, None)
     """
     # ── Check hard sort patterns ──
     for pattern, sb, d in SORT_PATTERNS:
         if re.search(pattern, normalized, re.IGNORECASE):
-            return QueryIntent.SORT, sb, d
-
-    # ── Check recommend triggers ──
-    for pattern in RECOMMEND_TRIGGERS:
-        if re.search(pattern, normalized, re.IGNORECASE):
-            return QueryIntent.RECOMMEND, None, None
+            return sb, d
 
     # ── Check for implicit sort words (price/rating/new without trigger) ──
     implicit_sort = [
@@ -140,15 +162,9 @@ def _classify_intent(
     ]
     for pattern, sb, d in implicit_sort:
         if re.search(pattern, normalized, re.IGNORECASE):
-            return QueryIntent.SORT, sb, d
+            return sb, d
 
-    # ── Check for category hint → implicit recommend ──
-    # "gaming headset", "耳机" — product mention without sort/trigger = recommend
-    if _extract_category(normalized):
-        return QueryIntent.RECOMMEND, None, None
-
-    # ── Default: ambiguous ──
-    return QueryIntent.AMBIGUOUS, None, None
+    return None, None
 
 
 def _extract_budget(normalized: str, original: str) -> Optional[str]:

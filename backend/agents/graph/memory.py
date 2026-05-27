@@ -43,15 +43,31 @@ class MemoryDecay:
         return result
 
 
-class GlobalMemoryManager:
-    """Singleton memory manager."""
+# ── Per-type memory loaders (single DB query each) ──────────
 
-    @staticmethod
-    def build(user_id: int) -> UserMemory:
-        """Build UserMemory from existing DB data."""
+def load_preferences(user_id: int) -> dict:
+    """Load preference distribution for a user. 1 DB query."""
+    try:
+        from .feedback.memory_distribution import get_all_preferences
+        all_dist = get_all_preferences(user_id)
+        preferences = {}
+        for key, dist in all_dist.items():
+            best = max(dist, key=dist.get) if dist else None
+            if best:
+                prefs = sorted(dist.items(), key=lambda x: x[1], reverse=True)
+                _, top_weight = prefs[0]
+                preferences[key] = top_weight
+        return preferences
+    except Exception:
+        return {}
+
+
+def load_purchase_profile(user_id: int) -> PurchaseSummary:
+    """Load purchase summary from orders. 1 DB query."""
+    try:
         from django.db.models import Avg, Count
         from orders.models import Order
-        from products.models import Review, Category
+        from products.models import Category
 
         orders = Order.objects.filter(user_id=user_id)
         total = orders.count()
@@ -68,40 +84,45 @@ class GlobalMemoryManager:
         last = orders.order_by('-created_at').first()
         last_date = last.created_at if last else None
 
-        purchase = PurchaseSummary(
+        return PurchaseSummary(
             total_orders=total,
             avg_order_value=avg_value,
             top_categories=top_cats,
             last_purchase_date=last_date,
         )
+    except Exception:
+        return PurchaseSummary()
 
-        # Behavioral from reviews
+
+def _load_behavioral(user_id: int) -> BehavioralProfile:
+    """Load behavioral profile from reviews. 1 DB query."""
+    try:
+        from django.db.models import Avg
+        from products.models import Review
+
         reviews = Review.objects.filter(user_id=user_id)
-        total_reviews = reviews.count()
+        total = reviews.count()
         avg_rating = float(reviews.aggregate(avg=Avg('rating'))['avg'] or 3.0)
 
-        behavioral = BehavioralProfile(
+        return BehavioralProfile(
             browse_depth=0.0,
-            price_sensitivity=0.5 - (avg_rating - 3.0) * 0.1,
+            price_sensitivity=max(0.1, 0.5 - (avg_rating - 3.0) * 0.1),
             return_rate=0.0,
             session_frequency="monthly" if total < 3 else "weekly" if total < 10 else "daily",
         )
+    except Exception:
+        return BehavioralProfile()
 
-        # ── Phase B-2: Load preferences from UserPreference distributions ──
-        preferences = {}
-        try:
-            from .feedback.memory_distribution import get_all_preferences, get_best_value
-            all_dist = get_all_preferences(user_id)
-            for key, dist in all_dist.items():
-                best = max(dist, key=dist.get) if dist else None
-                if best:
-                    # Normalize: map distribution confidence to preference score
-                    prefs = sorted(dist.items(), key=lambda x: x[1], reverse=True)
-                    top_val, top_weight = prefs[0]
-                    # Store the best value with its weight as score
-                    preferences[key] = top_weight
-        except Exception:
-            pass
+
+class GlobalMemoryManager:
+    """Singleton memory manager — supports full and per-type loading."""
+
+    @staticmethod
+    def build(user_id: int) -> UserMemory:
+        """Full build — all memory components."""
+        purchase = load_purchase_profile(user_id)
+        behavioral = _load_behavioral(user_id)
+        preferences = load_preferences(user_id)
 
         return UserMemory(
             user_id=user_id,

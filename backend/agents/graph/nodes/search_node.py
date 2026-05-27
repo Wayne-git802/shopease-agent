@@ -1,12 +1,12 @@
 """
-Search Node — hybrid retrieval with structured sort detection.
+Search Node — P1 strategy-driven hybrid retrieval.
 
-Two-tier sort intent detection:
-  1. Regex fast path: 12 patterns covering ~90% of sort queries (0ms)
-  2. LLM fallback: when regex misses, ask LLM to extract sort intent (~20ms, cached 5min)
+Upgrades the old binary "structured? → SQL : FAISS" to a 3-strategy system:
+  SQL_ONLY  — Direct SQL ORDER BY for clear sort intents
+  SEMANTIC  — FAISS vector search + RRF fusion
+  HYBRID    — Both paths, producing separate Candidate groups for merge_node
 
-When a sort intent is detected, bypasses FAISS entirely and uses SQL ORDER BY.
-The SearchPlan is stored in state for trace/observability.
+Strategy is selected by SearchStrategySelector, not by parser alone.
 """
 
 import re
@@ -133,11 +133,11 @@ def _execute_structured_sort(plan: SearchPlan, limit: int = 10) -> list[ProductR
 
     qs = Product.objects.filter(is_active=True)
 
-    # ── Apply category filter ──
+    # Apply category filter
     if plan.category_filter:
         qs = qs.filter(category__name__icontains=plan.category_filter)
 
-    # ── Apply budget band as price filter ──
+    # Apply budget band as price filter
     if plan.budget_band:
         if plan.budget_band == "0-500":
             qs = qs.filter(price__lte=500)
@@ -167,14 +167,18 @@ def _execute_structured_sort(plan: SearchPlan, limit: int = 10) -> list[ProductR
 # ── Main Node ──────────────────────────────────────────────────
 
 def search_node(state: AgentState) -> AgentState:
-    """Hybrid retrieval driven by SearchPlan from ConstraintParser."""
+    """P1 strategy-driven hybrid retrieval.
+
+    Uses SearchStrategySelector to decide SQL_ONLY / SEMANTIC / HYBRID.
+    HYBRID mode produces both structured and semantic results for merge_node.
+    """
 
     start = time.time()
 
     query = state.user_query or ""
     normalized = normalize_query(query)
 
-    # ── Load SearchPlan from orchestrator (ConstraintParser) ──
+    # Load SearchPlan from orchestrator (ConstraintParser + Validator)
     plan_dict = state.parallel_results.get("_search_plan", {})
     plan = SearchPlan(
         intent=plan_dict.get("intent", QueryIntent.RECOMMEND),
@@ -188,7 +192,29 @@ def search_node(state: AgentState) -> AgentState:
         detail=plan_dict.get("detail", ""),
     )
 
-    # ── Enrich with memory context ──
+    # ── P1: Strategy Selection ───────────────────────────────
+    _commerce_conf = state.confidence if state.confidence > 0 else 0.5
+    _active_signals = 0
+    if state.user_id:
+        try:
+            from ..feedback.signal_store import signal_count
+            _active_signals = signal_count(state.user_id)
+        except Exception:
+            pass
+
+    from ..search_strategy_selector import select as select_strategy, SearchStrategy
+    strategy_dec = select_strategy(
+        plan=plan,
+        commerce_confidence=_commerce_conf,
+        active_signals=_active_signals,
+        query=query,
+    )
+
+    # Store for DecisionTrace + merge_node
+    state.parallel_results["_search_strategy"] = strategy_dec.strategy
+    state.parallel_results["_search_strategy_decision"] = strategy_dec.to_dict()
+
+    # Enrich with memory context for semantic path
     enriched_query = query
     if state.user_memory and state.user_memory.preferences:
         top_prefs = sorted(
@@ -198,59 +224,81 @@ def search_node(state: AgentState) -> AgentState:
         pref_ctx = " ".join(f"{cat}" for cat, _ in top_prefs)
         enriched_query = f"{query} {pref_ctx}"
 
-    if plan.is_structured():
-        # ── Structured sort path: SQL ORDER BY ──
-        top_k = state.parallel_results.get("search_top_k", 10)
-        products = _execute_structured_sort(plan, limit=top_k)
-        docs: list[DocRef] = []
+    # ── Execute based on strategy ────────────────────────────
+    products: list[ProductRef] = []
+    docs: list[DocRef] = []
+    structured_products: list[ProductRef] = []
 
-        state.retrieved_products = products
-        state.retrieved_docs = docs
-        state.tool_results["products"] = [
+    top_k = state.parallel_results.get("search_top_k", 10)
+
+    # Structured path (SQL_ONLY or HYBRID)
+    if strategy_dec.strategy in (SearchStrategy.SQL_ONLY, SearchStrategy.HYBRID):
+        if plan.is_structured():
+            structured_products = _execute_structured_sort(plan, limit=top_k)
+
+    # Semantic path (SEMANTIC or HYBRID)
+    if strategy_dec.strategy in (SearchStrategy.SEMANTIC, SearchStrategy.HYBRID):
+        retriever = get_retriever()
+        products, docs = retriever.search(
+            enriched_query,
+            top_k=top_k,
+            user_id=state.user_id,
+        )
+    elif strategy_dec.strategy == SearchStrategy.SQL_ONLY:
+        # SQL_ONLY: use structured results as primary
+        products = structured_products
+        docs = []
+
+    # ── Store results ────────────────────────────────────────
+    state.retrieved_products = products
+    state.retrieved_docs = docs
+
+    # For HYBRID: store structured results separately for merge_node
+    if strategy_dec.strategy == SearchStrategy.HYBRID and structured_products:
+        state.parallel_results["_structured_products"] = [
             {"product_id": p.id, "product_name": p.name, "name": p.name,
              "price": str(p.price), "category_name": p.category,
              "score": p.relevance}
-            for p in products
+            for p in structured_products
         ]
-        state.current_node = "search"
+
+    # Build product dicts for UI (merge both in HYBRID mode)
+    all_products = list(products)
+    if strategy_dec.strategy == SearchStrategy.HYBRID:
+        all_products = list(structured_products) + list(products)
+
+    state.tool_results["products"] = [
+        {"product_id": p.id, "product_name": p.name, "name": p.name,
+         "price": str(p.price), "category_name": p.category,
+         "score": p.relevance}
+        for p in all_products
+    ]
+    state.current_node = "search"
+
+    # ── UI message ───────────────────────────────────────────
+    if strategy_dec.strategy == SearchStrategy.SQL_ONLY:
         method_label = plan.method.upper() if plan.method == "llm" else "快速匹配"
         budget_info = f" · 预算 {plan.budget_band}" if plan.budget_band else ""
         state.ui_message = (
             f"已识别排序意图（{method_label}），"
             f"按 {plan.sort_by} {plan.direction.upper()} 排序{budget_info}"
         )
-        state.steps_done.append("search")
-
-        # Add search plan phase info
-        phase = plan.to_phase()
-        state.parallel_results["_search_phase_detail"] = phase.get("detail", "")
-        state.parallel_results["_search_phase_label"] = phase.get("label", "")
-
-    else:
-        # ── Semantic path: FAISS + SQL LIKE → RRF ──
-        retriever = get_retriever()
-        top_k = state.parallel_results.get("search_top_k", 10)
-        products, docs = retriever.search(
-            enriched_query,
-            top_k=top_k,
-            user_id=state.user_id,
+    elif strategy_dec.strategy == SearchStrategy.HYBRID:
+        state.ui_message = (
+            f"混合检索：SQL排序({len(structured_products)}条) + 语义({len(products)}条)"
         )
-
-        state.retrieved_products = products
-        state.retrieved_docs = docs
-        # Store as dicts for block rendering
-        state.tool_results["products"] = [
-            {"product_id": p.id, "product_name": p.name, "name": p.name,
-             "price": str(p.price), "category_name": p.category,
-             "score": p.relevance}
-            for p in products
-        ]
-        state.current_node = "search"
+    else:
         state.ui_message = f"正在搜索：{query}"
-        state.steps_done.append("search")
 
-        state.parallel_results["_search_phase_detail"] = "FAISS + MySQL LIKE → RRF融合"
-        state.parallel_results["_search_phase_label"] = "语义检索"
+    state.steps_done.append("search")
+
+    # ── Trace metadata ───────────────────────────────────────
+    phase = plan.to_phase()
+    if strategy_dec.strategy == SearchStrategy.HYBRID:
+        phase = {"phase": "searching", "label": "混合检索",
+                 "detail": "SQL + FAISS → merge_node融合"}
+    state.parallel_results["_search_phase_detail"] = phase.get("detail", "")
+    state.parallel_results["_search_phase_label"] = phase.get("label", "")
 
     latency = int((time.time() - start) * 1000)
 

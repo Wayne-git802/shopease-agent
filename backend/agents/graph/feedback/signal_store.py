@@ -19,6 +19,7 @@ from agents.graph.contracts.signal_contract import SignalType
 
 TAU = 90 * 86400   # 90 days in seconds
 RANKING_SIGNAL_TYPES = {SignalType.INTENT, SignalType.CONVERSION}
+SIGNAL_WINDOW_DAYS = 90    # signals beyond this are excluded from injection gating
 
 
 def _decay_weight(created_at: datetime, now: datetime | None = None) -> float:
@@ -79,12 +80,24 @@ def get_category_signal(user_id: int, category: str) -> float:
     return signals.get(category, 0.0)
 
 
-def signal_count(user_id: int) -> int:
-    """How many INTENT+CONVERSION signals does this user have?"""
+def signal_count(user_id: int, window_days: int | None = None) -> int:
+    """How many INTENT+CONVERSION signals does this user have within the window?
+
+    Args:
+        user_id: user to count signals for
+        window_days: override SIGNAL_WINDOW_DAYS (None → use default)
+    """
     import django
     django.setup()
+    from django.utils import timezone as dj_timezone
+    from datetime import timedelta
     from agents.models import StandardizedSignal
+
+    days = window_days if window_days is not None else SIGNAL_WINDOW_DAYS
+    cutoff = dj_timezone.now() - timedelta(days=days)
+
     return StandardizedSignal.objects.filter(
         user_id=user_id,
         signal_type__in=[st.value for st in RANKING_SIGNAL_TYPES],
+        created_at__gte=cutoff,
     ).count()

@@ -44,7 +44,11 @@ def get(session_id: str) -> SessionMemory | None:
     if mem is None:
         return None
     if mem.expired:
-        del _store[session_id]
+        # Soft reset: clear pending state, keep active_domain for continuity
+        mem.pending_intent = ""
+        mem.collected_slots = {}
+        mem.missing_slots = []
+        mem.created_at = time.time()
         return None
     return mem
 

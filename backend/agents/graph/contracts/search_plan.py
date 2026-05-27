@@ -162,13 +162,19 @@ class SearchPlan:
     def is_structured(self) -> bool:
         """True when this plan calls for direct SQL ORDER BY."""
         return (
-            self.intent == QueryIntent.SORT
-            and self.sort_by is not None
+            self.sort_by is not None
             and self.direction is not None
         )
 
     def is_ambiguous(self) -> bool:
-        return self.intent == QueryIntent.AMBIGUOUS
+        """True when the intent is not a specific commerce intent.
+        
+        Handles both old QueryIntent.AMBIGUOUS and new IntentClassifier intents.
+        """
+        return (
+            self.intent == getattr(QueryIntent, "AMBIGUOUS", "ambiguous")
+            or self.intent not in {"search", "recommend", "order", "analytics"}
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -196,3 +202,33 @@ class SearchPlan:
             detail = f"FAISS语义检索: {self.semantic_query}"
             label = "语义向量检索"
         return {"phase": "searching", "label": label, "detail": detail}
+
+
+# ── QueryFrame (Layer 1 standard input) ────────────────────────
+
+@dataclass
+class QueryFrame:
+    """Standardized input frame for Commerce Layer (Layer 1).
+
+    Single source of truth passed from orchestrator to all Layer 1 components.
+    Prevents multiple layers from re-interpreting/rewriting the query independently.
+    """
+    raw: str                        # original user query
+    normalized: str                 # normalized query (fullwidth to halfwidth, etc.)
+    intent: object                  # IntentResult from IntentClassifier
+    context: dict = field(default_factory=dict)  # control_context from State Router
+    state_version: str = "v1"       # for trace/debug/replay alignment
+    trace_id: str = ""              # end-to-end trace anchor
+
+
+# ── CommerceResult (Layer 1 unified output) ────────────────────
+
+@dataclass
+class CommerceResult:
+    """Unified return type for Commerce Layer processing.
+
+    When degraded=True, plan is None and orchestrator falls back to lightweight path.
+    """
+    intent: object                  # IntentResult
+    plan: SearchPlan | None = None  # None when confidence too low
+    degraded: bool = False          # True when plan could not be produced

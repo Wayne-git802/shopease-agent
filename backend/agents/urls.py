@@ -14,6 +14,12 @@ urlpatterns = [
     # AI entry (LangGraph)
     path('ai/', cs_views.ai_entry, name='agent-ai-entry'),
     path('ai/feedback/', cs_views.feedback, name='agent-ai-feedback'),
+    # Session management
+    path('sessions/', cs_views.session_list, name='agent-session-list'),
+    path('sessions/create/', cs_views.session_create, name='agent-session-create'),
+    path('sessions/<str:session_id>/', cs_views.session_detail, name='agent-session-detail'),
+    path('sessions/<str:session_id>/messages/', cs_views.session_messages, name='agent-session-messages'),
+    path('sessions/<str:session_id>/delete/', cs_views.session_delete, name='agent-session-delete'),
     # Phase A: Evaluation tracking
     path('eval/track/', cs_views.eval_track, name='agent-eval-track'),
 

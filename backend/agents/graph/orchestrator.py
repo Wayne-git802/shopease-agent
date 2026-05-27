@@ -6,19 +6,20 @@ Usage:
 
     response = run(query="推荐一款手机", user_id=42)
 """
-from .state import AgentState, ChatMessage
+from .state import AgentState, ChatMessage, UserMemory, PurchaseSummary
 from .memory import memory_manager
 from .trace import persist_trace, RuntimeTrace, PhaseRecord, NODE_TO_PHASE, PHASE_LABELS
 from .graph_builder import get_graph
 from .fallback_graph import get_fallback_graph
 from .session_memory import get as get_session_memory, put as put_session_memory, clear as clear_session_memory
 from .session_memory import get_conv_state, put_conv_state, clear_conv_state
-from .preprocessor import resolve as preprocess, build_conversation_state, ResolvedAction
+from .preprocessor import build_conversation_state
 from .contracts.ui_state import (
     UIState, AIResponse, UIBlock, NODE_TO_UI_STATE, UI_STATE_MESSAGES
 )
 from .contracts.product_domain import SLOT_BY_KEY, MAX_CLARIFY_ROUNDS
 from .contracts.search_plan import normalize_query
+from datetime import datetime, timezone
 
 
 class UnrecoverableError(Exception):
@@ -42,6 +43,8 @@ def run(query: str, user_id: int | None = None,
       5. On failure → invoke fallback graph
       6. Persist trace + update memory
     """
+    import time as _time
+    _start = _time.time()
     # ── 1. Build state ──
     history_msgs = []
     if history:
@@ -74,64 +77,151 @@ def run(query: str, user_id: int | None = None,
     if product_id:
         state.parallel_results["similar_product_id"] = product_id
 
-    # ── 2.5 Preprocessor — deterministic state interpreter ──
-    # Resolve confirmations, slot selections, and pronoun continuations
-    # BEFORE any LLM call. Output is a ResolvedAction, not a text string.
+    # ── 1. State Router — Single Routing Authority ──
+    # Replaces Preprocessor + Input Guard. One decision point.
+    # Trivial path: template reply (0 LLM). Lightweight: chat_node only.
+    # Full graph: ConstraintParser → Memory → Graph.
     _original_query = query   # saved for conversation state
+
+    # ── 0.5 Active OrderWorkflow check ──
+    # If the user is mid-order-workflow, short-circuit to OrderAgent.
+    # Handles context-dependent queries like "第一个" / "确认" / "算了"
+    # that state_router would misclassify as greeting/chat/unclear.
+    if session_id:
+        from agents.order_agent.workflow_store import load as load_owf
+        owf = load_owf(session_id)
+        if owf and owf.current_step != "idle":
+            from agents.order_agent.agent import run as run_order_agent
+            result = run_order_agent(query=query, user_id=user_id, session_id=session_id)
+            if not result.get("_fallback"):
+                result["session_id"] = session_id
+                result["query_type"] = query_type
+                result["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
+                return result
+
+        # PurchaseAgent shortcut: if last assistant msg was a purchase confirm prompt
+        from agents.purchase_agent.agent import _get_recent_blocks
+        blocks = _get_recent_blocks(session_id, block_type="confirm_dialog")
+        for b in blocks:
+            if b.get("type") == "confirm_dialog" and b.get("data", {}).get("action") == "purchase":
+                from agents.purchase_agent.agent import run as run_purchase_agent
+                result = run_purchase_agent(query=query, user_id=user_id, session_id=session_id)
+                if not result.get("_fallback"):
+                    result["session_id"] = session_id
+                    result["query_type"] = query_type
+                    result["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
+                    return result
+                break
+
+    from .state_router import route as state_router, _pick_template
+
     conv_state = get_conv_state(session_id) if session_id else None
-    action = preprocess(query, conv_state)
+    route = state_router(query, conv_state)
 
-    if action.type == "direct_execute":
-        # Override query and intent — preprocessor determined routing
-        query = action.query or query
-        state.parallel_results["query_type"] = action.intent or ""
-        state.parallel_results["_resolved_params"] = action.params or {}
-        state.parallel_results["_guard_signal"] = action.intent or "search"
+    # Apply resolved query if context was filled
+    if route.resolved_query and route.resolved_query != query:
+        query = route.resolved_query
         state.user_query = query
         state.normalized_query = normalize_query(query)
-        # Skip Input Guard — intent already determined by preprocessor
-    elif action.type == "rewrite":
-        # Override query but let Input Guard classify
-        query = action.query or query
-        state.user_query = query
-        state.normalized_query = normalize_query(query)
-    # action.type == "pass" → fall through unchanged
 
-    # ── 3.1 Input Guard: routing pre-layer arbitration ──
-    # Only run if preprocessor didn't already resolve (direct_execute)
-    guard_signal = state.parallel_results.get("_guard_signal", "")
-    if not guard_signal:
-        from .nodes.input_guard import classify as guard_classify
-        guard_signal = guard_classify(query)
-        state.parallel_results["_guard_signal"] = guard_signal
+    state.control_context = route.control_context
 
-    if guard_signal == "chat":
-        # Fast path: non-shopping query → chat_node only
-        from .nodes.chat_node import chat_node
-        state = chat_node(state)
+    # ── 2. Commerce Layer (only when needed) ──
+    commerce_result = None
+    if route.needs_commerce_layer:
+        from .commerce_intent import classify as classify_commerce
+        commerce_result = classify_commerce(query)
 
-        response = AIResponse(
-            ui_state=UIState.DONE,
-            message="",
-            confidence=0.9,
-            blocks=[],
-            reply=state.final_response,
-            intent="chat",
-        )
-        result = response.model_dump()
-        result["runtime"] = None
-        result["explain"] = None
-        result["retrieval"] = None
-        result["show_budget_hint"] = False
-        result["show_clarify_hint"] = False
+    # ── 2.5 OrderAgent routing ──
+    if commerce_result and commerce_result.intent == "order":
+        from agents.order_agent.agent import run as run_order_agent
+        result = run_order_agent(query=query, user_id=user_id, session_id=session_id)
+        result["session_id"] = session_id
+        result["query_type"] = query_type
+        result["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
         return result
 
-    # ── 3.05 Memory enrichment — only for search/recommend ──
-    if _user_id_for_memory:
+    # ── 2.6 PurchaseAgent routing ──
+    if commerce_result and commerce_result.intent == "purchase" and commerce_result.confidence >= 0.3:
+        from agents.purchase_agent.agent import run as run_purchase_agent
+        result = run_purchase_agent(query=query, user_id=user_id, session_id=session_id)
+        if not result.get("_fallback"):
+            result["session_id"] = session_id
+            result["query_type"] = query_type
+            result["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
+            return result
+
+    # ── 3. Response Policy — resource scheduler ──
+    from .response_policy import plan as policy_plan
+    plan = policy_plan(route, commerce_result)
+
+    # ── Template path ──
+    if plan.execution_mode == "template":
+        reply = _pick_template(route.intent)
+        return {
+            "reply": reply, "intent": route.intent,
+            "confidence": route.confidence, "ui_state": "done",
+            "message": route.reason, "blocks": [],
+            "ranked_items": [], "tool_results": {},
+            "session_id": session_id, "query_type": query_type,
+            "runtime": {"phases": [{"phase": "routing", "label": "快速路由", "status": "ok", "ms": int((_time.time() - _start) * 1000)}], "total_ms": int((_time.time() - _start) * 1000)},
+            "explain": None, "retrieval": None,
+            "show_budget_hint": False, "show_clarify_hint": False,
+        }
+
+    # ── LLM direct path: single LLM call, no memory, no graph ──
+    if plan.execution_mode == "llm_direct":
+        from .nodes.chat_node import chat_node
+        state.user_memory = None
+        state = chat_node(state)
+        response = AIResponse(
+            ui_state=UIState.DONE, message=route.reason,
+            confidence=route.confidence, blocks=[],
+            reply=state.final_response, intent=route.intent,
+        )
+        result = response.model_dump()
+        result.update(runtime={"phases": [{"phase": "routing", "label": "LLM直出", "status": "ok", "ms": int((_time.time() - _start) * 1000)}], "total_ms": int((_time.time() - _start) * 1000)}, explain=None, retrieval=None,
+                      show_budget_hint=False, show_clarify_hint=False,
+                      session_id=session_id, query_type=query_type,
+                      ranked_items=[], tool_results={})
+        return result
+
+    # ── Graph path: memory → ConstraintParser → full_graph ──
+
+    # ── 4. Memory Hydration (per plan, with per-request cache) ──
+    if _user_id_for_memory and plan.memory != "none":
         try:
-            state.user_memory = memory_manager.build(_user_id_for_memory)
+            from .memory import load_preferences, load_purchase_profile
+            # Per-request cache on state — traceable, no cross-request leak
+            cache = getattr(state, '_memory_cache', None) or {}
+            uid = _user_id_for_memory
+
+            if plan.memory == "preferences":
+                if "prefs" not in cache:
+                    cache["prefs"] = load_preferences(uid)
+                state.user_memory = UserMemory(
+                    user_id=uid, preferences=cache["prefs"],
+                    purchase_summary=PurchaseSummary(),
+                )
+            elif plan.memory == "purchase":
+                if "purchase" not in cache:
+                    cache["purchase"] = load_purchase_profile(uid)
+                state.user_memory = UserMemory(
+                    user_id=uid, preferences={},
+                    purchase_summary=cache["purchase"],
+                )
+            else:  # full
+                state.user_memory = memory_manager.build(uid)
+
+            state._memory_cache = cache
         except Exception:
-            pass   # Memory is optional; graph can run without it
+            pass
+
+    # ── Pass state_router intent to entry_router via control_context ──
+    # entry_router is an EXECUTOR — accepts preset for definitive intents.
+    # "commerce" is deliberately excluded: entry_router + ConstraintParser own the fine-grained split.
+    if route.intent not in ("commerce", "unclear"):
+        state.control_context["preset_intent"] = route.intent
 
     # ── 3.2 ConstraintParser: unified query classification ──
     # Single entry point replacing scattered sort/intent detection.
@@ -151,6 +241,65 @@ def run(query: str, user_id: int | None = None,
     state.parallel_results["_search_phase_label"] = phase.get("label", "")
     # Store hint flags for UI
     state.parallel_results["_show_budget_hint"] = plan.show_budget_hint
+
+    # ── 3.3 Execution Validator — plan stability gate ──
+    # Validates SearchPlan before downstream nodes consume it.
+    # Corrects: sort semantics mismatch, confidence gating, recommend_type drift.
+    from .execution_validator import validate as validate_plan, get_validated_recommend_type
+    from .decision_trace import DecisionTrace, BranchDecision, build_trace, snapshot_signals
+
+    # Determine has_history for recommend_type validation
+    _has_history = bool(
+        _user_id_for_memory
+        and state.user_memory
+        and state.user_memory.purchase_summary
+        and state.user_memory.purchase_summary.total_orders > 0
+    )
+
+    # Commerce confidence (from L1)
+    _commerce_conf = commerce_result.confidence if commerce_result else 0.0
+
+    # Current recommend_type (may be empty if not set by API)
+    _current_rec_type = state.parallel_results.get("recommend_type", "")
+
+    # Run validation
+    validated = validate_plan(
+        plan=plan,
+        query=query,
+        commerce_confidence=_commerce_conf,
+        recommend_type=_current_rec_type,
+        intent=route.intent,
+        user_id=_user_id_for_memory,
+        has_history=_has_history,
+    )
+
+    # Apply validated results
+    state.parallel_results["_search_plan"] = validated.to_dict()
+    if validated.downgraded:
+        # Plan was downgraded — override query_type to remove "search" hint
+        if state.parallel_results.get("query_type") == "search":
+            state.parallel_results["query_type"] = "recommend"
+
+    # Resolve and store validated recommend_type
+    corrected_rec_type = get_validated_recommend_type(validated)
+    state.parallel_results["recommend_type"] = corrected_rec_type
+
+    # Store validation decisions for trace
+    state.parallel_results["_validator_decisions"] = validated.to_dict()
+
+    # ── 3.4 Decision Trace anchor ──
+    # Initialize trace structure for this execution
+    _dt = DecisionTrace(
+        session_id=session_id,
+        query=query,
+        plan_version="v2",
+        plan_raw=plan.to_dict(),
+        plan_validated=validated.to_dict(),
+        validation_decisions=[d.to_dict() for d in validated.decisions],
+        plan_downgraded=validated.downgraded,
+    )
+    # Store on state for later enrichment
+    state.parallel_results["_decision_trace"] = _dt
     state.parallel_results["_show_clarify_hint"] = plan.show_clarify_hint
 
     # ── 3.5 P3: Session memory restore ──
@@ -499,6 +648,65 @@ def run(query: str, user_id: int | None = None,
             },
         })
 
+        # ── P1: Enrich DecisionTrace with strategy decisions ──
+        _dt = state.parallel_results.get("_decision_trace")
+        if isinstance(_dt, DecisionTrace):
+            # ── Search strategy decision ──────────────────────
+            _strategy_dec = state.parallel_results.get("_search_strategy_decision", {})
+            _search_strategy = _strategy_dec.get("strategy", "semantic")
+
+            # Count structured results for HYBRID
+            _struct_count = len(
+                state.parallel_results.get("_structured_products", [])
+            )
+
+            # Merge policy metadata
+            _merged = state.parallel_results.get("_merge_policy", {})
+
+            _dt.node_decisions = [
+                BranchDecision(
+                    node="search",
+                    branch=_search_strategy,
+                    reason=_strategy_dec.get("reason", ""),
+                    inputs={
+                        "strategy": _search_strategy,
+                        "dual_source": _strategy_dec.get("dual_source", False),
+                        "structured_count": _struct_count,
+                        "semantic_count": len(state.retrieved_products or []),
+                    },
+                ),
+                BranchDecision(
+                    node="recommend",
+                    branch=state.parallel_results.get("recommend_type", "popular"),
+                    reason=f"intent={state.intent}, user_id={state.user_id}",
+                    inputs={"intent": state.intent},
+                ),
+                BranchDecision(
+                    node="merge",
+                    branch="fusion_p1",
+                    reason=(
+                        f"policy={_merged.get('policy', 'default')}, "
+                        f"sw={_merged.get('search_weight', 0.5)}, "
+                        f"rw={_merged.get('rec_weight', 0.5)}, "
+                        f"div={_merged.get('diversity_lambda', 0.25)}"
+                    ),
+                    inputs={
+                        "search_count": len(state.retrieved_products or []),
+                        "rec_count": len(state.ranked_items or []),
+                        "struct_count": _struct_count,
+                        "policy": state.parallel_results.get("_merge_policy", {}),
+                    },
+                ),
+            ]
+
+            # Capture signal snapshot
+            _dt.signal_snapshot = snapshot_signals(state.user_id)
+            _dt.recorded_at = datetime.now(timezone.utc).isoformat()
+
+        # Serialize for persistence
+        _dt_dict = _dt.to_dict() if isinstance(_dt, DecisionTrace) else {}
+        # ──────────────────────────────────────────────────────
+
         SessionTrace.objects.create(
             session_id=session_id,
             user_id=state.user_id,
@@ -514,6 +722,7 @@ def run(query: str, user_id: int | None = None,
             signals_applied=signals,
             block_count=len(blocks),
             total_ms=runtime_dict["total_ms"] if runtime_dict else 0,
+            decision_trace=_dt_dict,
         )
     except Exception as e:
         import traceback

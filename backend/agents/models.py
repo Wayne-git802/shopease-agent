@@ -46,11 +46,13 @@ class AgentConversation(models.Model):
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
-        related_name='agent_conversations')
+        related_name='agent_conversations',
+        null=True, blank=True)                         # null → guest users
     agent_type = models.CharField(max_length=32)   # customer_service | recommend
     session_id = models.CharField(max_length=64, db_index=True)
     role = models.CharField(max_length=16)          # user | assistant | tool
     content = models.TextField()
+    metadata = models.JSONField(default=dict, blank=True)  # blocks, artifacts
     tokens_used = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -210,6 +212,68 @@ class RoutingTuningLog(models.Model):
         return f"[{self.routing_method}] {self.intent} → {self.outcome} (reward={self.reward_score:.2f})"
 
 
+# ── ConversationSession — UI chat session metadata ────────────
+
+class ConversationSession(models.Model):
+    """Chat session container for the AI Workspace sidebar.
+
+    Maps 1:N to AgentConversation messages.
+    NOT the same as AgentState.session_id (runtime graph state).
+    """
+    session_id      = models.CharField(max_length=64, unique=True, db_index=True)
+    user            = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='chat_sessions',
+        null=True, blank=True)                       # null → guest
+    title           = models.CharField(max_length=200, default='', blank=True)
+    last_message_at = models.DateTimeField(auto_now=True)
+    created_at      = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'conversation_sessions'
+        ordering = ['-last_message_at']
+        indexes = [
+            models.Index(fields=['user', '-last_message_at']),
+        ]
+
+    def __str__(self):
+        return f"[{self.session_id[:8]}] {self.title[:40]}"
+
+
+# ── OrderWorkflow — OrderAgent transaction state ────────────
+
+class OrderWorkflow(models.Model):
+    """Persistent workflow state for OrderAgent multi-turn transactions.
+
+    Separate from CommerceAgent's pending_slots — this is transactional
+    state (selected_order, confirmation), not constraint clarification.
+    """
+    workflow_id     = models.CharField(max_length=64, unique=True, db_index=True)
+    session_id      = models.CharField(max_length=64, db_index=True)
+    user_id         = models.IntegerField(null=True, blank=True)
+    current_step    = models.CharField(max_length=32, default="idle")  # OrderStep
+    selected_order_id = models.IntegerField(null=True, blank=True)
+    confirm_type    = models.CharField(max_length=32, null=True, blank=True)
+    confirm_token   = models.CharField(max_length=64, null=True, blank=True)
+    confirm_expires_at = models.DateTimeField(null=True, blank=True)
+    idempotency_key = models.CharField(max_length=64, null=True, blank=True)
+    orders_snapshot = models.JSONField(default=list, blank=True)
+    snapshot_at     = models.DateTimeField(null=True, blank=True)
+    snapshot_hash   = models.CharField(max_length=32, null=True, blank=True)
+    created_at      = models.DateTimeField(auto_now_add=True)
+    updated_at      = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'order_workflows'
+        indexes = [
+            models.Index(fields=['session_id']),
+            models.Index(fields=['user_id', '-updated_at']),
+        ]
+
+    def __str__(self):
+        return f"[{self.workflow_id[:8]}] step={self.current_step}"
+
+
 # ── SessionTrace — Phase B-4 replay + diff infrastructure ──
 
 class SessionTrace(models.Model):
@@ -228,6 +292,7 @@ class SessionTrace(models.Model):
     signals_applied = models.JSONField(default=dict)        # {category: boost, ...}
     block_count     = models.IntegerField(default=0)
     total_ms        = models.IntegerField(default=0)
+    decision_trace  = models.JSONField(default=dict, blank=True)  # P0: DecisionTrace schema
     created_at      = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:

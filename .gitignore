@@ -23,6 +23,11 @@ backend/data/faiss_id_map.json
 *.rar
 *.tar.gz
 CLAUDE.md
+backend/staticfiles/
+backend/media/
+.hermes/
+_fix_env.py
+.env.tmp
 *.tmp
 *.bak
 .env

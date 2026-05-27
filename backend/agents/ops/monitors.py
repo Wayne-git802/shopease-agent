@@ -152,7 +152,7 @@ def check_error_rate() -> Optional[dict]:
             'window_hours': LOOKBACK_HOURS,
             'by_agent': [
                 {'agent': agent, 'total': t, 'failed': f, 'pct': round(f/t*100,1) if t else 0}
-                for agent, t, f in by_agent
+                for agent, t, f in agent_rows
             ],
         }
     except Exception as exc:

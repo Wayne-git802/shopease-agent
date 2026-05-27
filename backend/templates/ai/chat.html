@@ -40,14 +40,24 @@ function getHeaders() {
     return h;
 }
 
+const chatMsgs = document.getElementById('chatMessages');
+
+function isNearBottom(el, threshold = 80) {
+    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+}
+
+function scrollToBottom(el, smooth = true) {
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+}
+
 function addMessage(role, text) {
-    const msgs = document.getElementById('chatMessages');
-    if (msgs.querySelector('.ai-empty')) msgs.innerHTML = '';
+    if (chatMsgs.querySelector('.ai-empty')) chatMsgs.innerHTML = '';
+    const wasNearBottom = isNearBottom(chatMsgs);
     const div = document.createElement('div');
     div.className = 'ai-chat-msg ' + role;
     div.innerHTML = text.replace(/\n/g, '<br>');
-    msgs.appendChild(div);
-    msgs.scrollTop = msgs.scrollHeight;
+    chatMsgs.appendChild(div);
+    if (wasNearBottom) scrollToBottom(chatMsgs);
 }
 
 async function sendMessage() {

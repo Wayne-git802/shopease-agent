@@ -241,7 +241,22 @@ def entry_router(state: AgentState) -> Command:
     Returns:
         Command(goto=intent, update={intent, confidence, routing_method, current_node})
     """
-    # ── ConstraintParser override: SearchPlan already classified the query ──
+    # State Router preset: accept intent from Layer 0
+    # entry_router is an EXECUTOR — must not override state_router's decision.
+    preset = state.control_context.get("preset_intent", "")
+    if preset in ("search", "recommend", "order", "ops", "analytics", "chat"):
+        return Command(
+            goto=preset,
+            update={
+                "intent": preset,
+                "confidence": 0.9,
+                "routing_method": "preset",
+                "current_node": "entry_router",
+                "ui_message": f"匹配到「{preset}」意图（路由预设）",
+            },
+        )
+
+    # ConstraintParser override
     # When orchestrator set _search_plan via ConstraintParser, use its intent
     # directly instead of running Jaccard + LLM classification.
     search_plan = state.parallel_results.get("_search_plan")
@@ -309,13 +324,17 @@ def entry_router(state: AgentState) -> Command:
         confidence = fast_confidence
         method = "fast"
     else:
-        # ── Tier 2: LLM fallback ──
+        # ── Safe degrade (NO LLM fallback) ──
+        # entry_router is an EXECUTOR, not a decision-maker.
+        # state_router is the sole routing authority.
+        # Low-confidence → default to "chat" instead of calling LLM.
         logger.info(
-            "Fast router confidence %.2f < %.2f, using LLM fallback",
-            fast_confidence, FAST_CONFIDENCE_THRESHOLD,
+            "Fast router confidence %.2f < %.2f, degrading to chat",
+            fast_confidence, current_threshold,
         )
-        intent, confidence = _llm_classify(query, history)
-        method = "slow"
+        intent = "chat"
+        confidence = max(fast_confidence, 0.3)
+        method = "fast_degraded"
 
     # ── Floor enforcement ──
     if confidence < 0.3:

@@ -11,10 +11,13 @@ import logging
 
 from django.http import StreamingHttpResponse
 from django.db import models
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from agents.models import ConversationSession, AgentConversation
 from agents.permissions import IsAuthenticatedOrGuest, IsOwnerOrAdmin
 from agents.customer_service.agent import CustomerServiceAgent
 from agents.core.base_agent import AgentContext
@@ -119,13 +122,54 @@ def ai_entry(request):
 
     history = request.data.get('history', [])
 
+    # ── Persist user message (immediate) ──
+    if request.user.is_authenticated:
+        try:
+            AgentConversation.objects.create(
+                user=request.user,
+                agent_type='workspace',
+                session_id=session_id,
+                role='user',
+                content=query,
+            )
+        except Exception:
+            pass
+
+    assistant_reply = ''
+    assistant_blocks = []
     try:
         result = run_graph(query=query, user_id=user_id, session_id=session_id,
                           query_type=query_type, product_id=product_id,
                           history=history)
+        assistant_reply = result.get('reply', '')
+        assistant_blocks = result.get('blocks', [])
     except Exception as e:
-        return Response({'error': str(e), 'reply': f'AI service error: {e}'},
+        assistant_reply = f'AI service error: {e}'
+        return Response({'error': str(e), 'reply': assistant_reply},
                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    finally:
+        # ── Persist assistant message (guaranteed) ──
+        if request.user.is_authenticated and assistant_reply:
+            try:
+                AgentConversation.objects.create(
+                    user=request.user,
+                    agent_type='workspace',
+                    session_id=session_id,
+                    role='assistant',
+                    content=assistant_reply,
+                    metadata={'blocks': assistant_blocks},
+                )
+                ConversationSession.objects.filter(
+                    session_id=session_id, user=request.user,
+                ).update(last_message_at=timezone.now())
+                cs = ConversationSession.objects.filter(
+                    session_id=session_id, user=request.user,
+                ).first()
+                if cs and not cs.title:
+                    cs.title = query[:50]
+                    cs.save(update_fields=['title'])
+            except Exception:
+                pass
 
     return Response({
         'ui_state': result.get('ui_state', 'done'),
@@ -133,16 +177,15 @@ def ai_entry(request):
         'blocks': result.get('blocks', []),
         'reply': result.get('reply', ''),
         'intent': result.get('intent', ''),
+        'agent_type': result.get('agent_type', 'commerce'),
         'confidence': result.get('confidence', 0.0),
         'ranked_items': result.get('ranked_items', []),
         'tool_results': result.get('tool_results', {}),
         'session_id': session_id,
         'query_type': query_type,
-        # Phase A: Runtime productization
         'runtime': result.get('runtime'),
         'explain': result.get('explain'),
         'retrieval': result.get('retrieval'),
-        # Phase 0: ConstraintParser hints for UI
         'show_budget_hint': result.get('show_budget_hint', False),
         'show_clarify_hint': result.get('show_clarify_hint', False),
     }, status=status.HTTP_200_OK)
@@ -227,6 +270,79 @@ def feedback(request):
         pass
 
     return Response({'status': 'ok'}, status=status.HTTP_200_OK)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Session Management API
+# ═══════════════════════════════════════════════════════════════
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def session_list(request):
+    sessions = ConversationSession.objects.none()
+    if request.user.is_authenticated:
+        sessions = ConversationSession.objects.filter(
+            user=request.user,
+        ).order_by('-last_message_at')
+    data = [{
+        'session_id': s.session_id,
+        'title': s.title,
+        'last_message_at': s.last_message_at,
+        'created_at': s.created_at,
+    } for s in sessions]
+    return Response(data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def session_create(request):
+    title = request.data.get('title', '')
+    session_id = uuid.uuid4().hex
+    ConversationSession.objects.create(
+        session_id=session_id,
+        user=request.user,
+        title=title,
+    )
+    return Response({'session_id': session_id, 'title': title}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def session_detail(request, session_id):
+    title = request.data.get('title', '')
+    updated = ConversationSession.objects.filter(
+        session_id=session_id, user=request.user,
+    ).update(title=title)
+    if not updated:
+        return Response({'error': 'not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response({'ok': True}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def session_messages(request, session_id):
+    qs = AgentConversation.objects.filter(
+        session_id=session_id, user=request.user,
+    ).order_by('created_at')
+    data = [{
+        'role': m.role,
+        'content': m.content,
+        'metadata': m.metadata or {},
+        'created_at': m.created_at,
+    } for m in qs]
+    return Response(data, status=status.HTTP_200_OK)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def session_delete(request, session_id):
+    ConversationSession.objects.filter(
+        session_id=session_id, user=request.user,
+    ).delete()
+    AgentConversation.objects.filter(
+        session_id=session_id, user=request.user,
+    ).delete()
+    return Response({'ok': True}, status=status.HTTP_200_OK)
 
 
 # ═══════════════════════════════════════════════════════════════

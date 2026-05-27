@@ -117,6 +117,9 @@ class AgentState(BaseModel):
     missing_fields: list[str] = []      # slots to ask about, e.g. ["budget"]
     clarify_round: int = 0              # current round (max = MAX_CLARIFY_ROUNDS)
 
+    # Layer 0: Route control context (resolved slots, trace_id, domain)
+    control_context: dict = Field(default_factory=dict)
+
     # Output
     final_response: str = ""
     error: str | None = None
