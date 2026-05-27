@@ -33,6 +33,12 @@ _INTENT_KEYWORDS: dict[str, list[str]] = {
     OrderIntent.ORDER_DETAIL: ["详情", "detail"],
 }
 
+# Patterns that mean "show me the most recent order"
+_RECENT_ORDER_PATTERNS = [
+    "刚才下单", "刚刚下单", "刚买的", "刚才买的", "刚才那个",
+    "刚下的", "刚才的订单", "刚刚的订单", "最近下单", "最新的订单",
+]
+
 # Reference patterns
 _REFERENCE_PATTERNS = [
     (["第二个", "第2", "2nd"], "index", 1),       # 1-indexed
@@ -56,7 +62,18 @@ def parse(query: str) -> ParsedIntent:
     """Parse user query into an order intent."""
     q = query.lower().strip()
 
-    # 1. Check reference patterns first
+    # 0. Check "most recent order" patterns first
+    for pat in _RECENT_ORDER_PATTERNS:
+        if pat in q:
+            return ParsedIntent(
+                intent=OrderIntent.ORDER_DETAIL,
+                is_reference=True,
+                reference_type="match",
+                reference_value="recent",
+                confidence=0.9,
+            )
+
+    # 1. Check reference patterns
     for keywords, ref_type, ref_val in _REFERENCE_PATTERNS:
         for kw in keywords:
             if kw in q:

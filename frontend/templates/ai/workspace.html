@@ -602,8 +602,7 @@ function renderOrderCreatedCard(container, data) {
 }
 
 function viewOrder(orderNo) {
-    document.getElementById('workspaceInput').value = '查订单 ' + orderNo;
-    submitWorkspace();
+    window.location.href = '/orders/';
 }
 
 // ═══════════════════════════════════════════

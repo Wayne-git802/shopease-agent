@@ -51,10 +51,13 @@ def run(query: str, user_id: int | None = None, session_id: str = "") -> dict:
 
     # Handle references ("第二个")
     if parsed.is_reference:
-        ref = resolve_reference(query, wf_state, wf_state.orders_snapshot)
+        ref = resolve_reference(query, wf_state, wf_state.orders_snapshot, user_id=user_id)
         if ref["resolved"]:
             wf_state.selected_order_id = ref["order_id"]
             wf_state.current_step = OrderStep.SELECTED
+            # Populate snapshot from "recent" DB query
+            if ref.get("_orders"):
+                wf_state.orders_snapshot = ref["_orders"]
             save_workflow(
                 session_id=session_id, user_id=user_id,
                 current_step=wf_state.current_step.value,
