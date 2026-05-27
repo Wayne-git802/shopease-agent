@@ -304,7 +304,7 @@ def search_node(state: AgentState) -> AgentState:
 
     state.trace.append(NodeTrace(
         node_name="search",
-        model_name="" if plan.is_structured() else "all-MiniLM-L6-v2",
+        model_name="" if plan.is_structured() else "paraphrase-multilingual-MiniLM-L12-v2",
         latency_ms=latency,
     ))
 

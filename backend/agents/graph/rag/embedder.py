@@ -6,7 +6,7 @@ Lazy-loaded singleton — 80MB model, loaded once at first use.
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
-_MODEL_NAME = "all-MiniLM-L6-v2"
+_MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
 _embedder: SentenceTransformer | None = None
 
 
