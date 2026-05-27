@@ -149,7 +149,7 @@ def _build_final_route(
 
     # Normal path — L1 intent with L0 envelope
     return RouteDecision(
-        intent=l1_result.intent,
+        intent="commerce",                   # keep L0 intent for ResponsePolicy
         confidence=l1_result.confidence,
         reason=f"FinalDecision: {l1_result.intent}({l1_result.confidence:.2f})",
         needs_commerce_layer=True,
@@ -170,6 +170,32 @@ def _sanitize_response(text: str) -> str:
             )
             return _SANITIZE_REPLACEMENT
     return text
+
+
+def _is_low_information(query: str) -> bool:
+    """True when query is a short slot fill, not a full intent.
+    Chinese ≤ 3 characters, no digits/price/brand signals."""
+    import re
+    q = query.strip()
+    # Non-answers that should NOT trigger merge
+    _NON_SLOT = {"不知道", "随便", "都行", "都可以", "不清楚"}
+    if q in _NON_SLOT:
+        return False
+    # Count Chinese chars + short tokens
+    cn = len(re.findall(r'[\u4e00-\u9fff]', q))
+    if cn > 3:
+        return False
+    # Has entity signals → not low-information
+    if re.search(r'\d|元|¥|\$|pro|max|plus|mini|ultra', q, re.IGNORECASE):
+        return False
+    return cn >= 1 and len(q) <= 6
+
+
+def _is_ambiguous(query: str) -> bool:
+    """True when query is a pronoun/continuation without content.
+    e.g. '换一个', '还有吗', '别的', '不太喜欢'"""
+    AMBIGUOUS = {"换一个", "还有吗", "别的", "别的呢", "再看看", "不太喜欢", "不喜欢"}
+    return query.strip() in AMBIGUOUS
 
 
 def run(query: str, user_id: int | None = None,
@@ -227,7 +253,6 @@ def run(query: str, user_id: int | None = None,
     # Replaces Preprocessor + Input Guard. One decision point.
     # Trivial path: template reply (0 LLM). Lightweight: chat_node only.
     # Full graph: ConstraintParser → Memory → Graph.
-    _original_query = query   # saved for conversation state
 
     # ── 0.5 Active OrderWorkflow check ──
     # If the user is mid-order-workflow, short-circuit to OrderAgent.
@@ -259,9 +284,28 @@ def run(query: str, user_id: int | None = None,
                     return result
                 break
 
-    from .state_router import route as state_router, _pick_template, RouteDecision
+    from .state_router import route as state_router, _pick_template, RouteDecision, _has_strong_intent
 
     conv_state = get_conv_state(session_id) if session_id else None
+    _original_query = query   # saved for conversation state
+
+    # ── Dialogue context merge ──
+    # If system left a gap (expects_followup) and user fills a short slot.
+    if conv_state and conv_state.dialogue.expects_followup:
+        if _is_low_information(query) and not _has_strong_intent(query):
+            # Slot fill — merge into query, then reset
+            query = f"{conv_state.dialogue.last_user_query} {query}"
+            conv_state.dialogue.injected_slot = query  # trace
+            conv_state.dialogue.expects_followup = False
+        elif _is_ambiguous(query):
+            # Ambiguous continuation — fallback merge
+            query = f"{conv_state.dialogue.last_user_query} {query}"
+            conv_state.dialogue.expects_followup = False
+        elif _has_strong_intent(query):
+            # Topic change — reset
+            conv_state.dialogue.expects_followup = False
+        # else: user said "不知道"/"随便" — keep expects_followup, let LLM handle
+
     route = state_router(query, conv_state)
 
     # Apply resolved query if context was filled
@@ -319,6 +363,9 @@ def run(query: str, user_id: int | None = None,
     # ── Template path ──
     if plan.execution_mode == "template":
         reply = _pick_template(final_route.intent)
+        if session_id and conv_state:
+            conv_state.dialogue.last_user_query = _original_query
+            conv_state.dialogue.expects_followup = True  # template/llm_direct: gap left
         return {
             "reply": reply, "intent": final_route.intent,
             "confidence": final_route.confidence, "ui_state": "done",
@@ -345,6 +392,9 @@ def run(query: str, user_id: int | None = None,
                       show_budget_hint=False, show_clarify_hint=False,
                       session_id=session_id, query_type=query_type,
                       ranked_items=[], tool_results={})
+        if session_id and conv_state:
+            conv_state.dialogue.last_user_query = _original_query
+            conv_state.dialogue.expects_followup = True  # LLM may have asked
         return result
 
     # ── Graph path: memory → ConstraintParser → full_graph ──
@@ -522,6 +572,10 @@ def run(query: str, user_id: int | None = None,
             ai_reply=state.final_response,
         )
         put_conv_state(cs)
+        cs.dialogue.last_user_query = _original_query
+        # Graph with products = complete → no followup expected
+        has_cards = bool(state.tool_results.get("products"))
+        cs.dialogue.expects_followup = not has_cards
     elif session_id:
         # No clarify — clear old session memory
         clear_session_memory(session_id)
@@ -534,6 +588,10 @@ def run(query: str, user_id: int | None = None,
             ai_reply=state.final_response,
         )
         put_conv_state(cs)
+        cs.dialogue.last_user_query = _original_query
+        # Graph with products = complete → no followup expected
+        has_cards = bool(state.tool_results.get("products"))
+        cs.dialogue.expects_followup = not has_cards
 
     # ── 6.5 Phase B-2: Persist clarify answers to memory distribution ──
     if user_id and session_mem and session_mem.pending_intent and not clarify_data:

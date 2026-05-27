@@ -31,6 +31,14 @@ class ResolvedAction:
 
 
 @dataclass
+class DialogueContext:
+    """Per-session dialogue state — strictly separate from execution data."""
+    injected_slot: str | None = None          # user's fill answer ("数码")
+    last_user_query: str = ""                  # previous round's user query
+    expects_followup: bool = False             # system left a gap → waiting
+
+
+@dataclass
 class ConversationState:
     """Snapshot of what the AI is waiting for, stored per session."""
     session_id: str
@@ -41,6 +49,7 @@ class ConversationState:
     original_query: str = ""                    # The query that triggered this clarify round
     context_summary: str = ""                   # One-line summary of last turn
     created_at: float = 0.0
+    dialogue: DialogueContext = field(default_factory=DialogueContext)
 
 
 # ═══════════════════════════════════════════════════════════════
