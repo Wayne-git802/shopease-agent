@@ -126,6 +126,38 @@ def apply_signals(
     )
 
 
+def _build_final_route(
+    l0_route,                 # RouteDecision from state_router
+    l1_result=None,           # IntentResult from commerce_intent (or None)
+):
+    """FinalDecision — single truth source from L0 + L1 + signals."""
+    from .state_router import RouteDecision
+
+    if l1_result is None:
+        return l0_route
+
+    # Check if ConversationSignals overrode to chat
+    if l1_result.confidence <= 0.0:
+        return RouteDecision(
+            intent="chat",
+            confidence=0.6,
+            reason="FinalDecision: signal override → chat",
+            needs_commerce_layer=False,
+            execution_hint="llm_direct",
+            control_context=l0_route.control_context,
+        )
+
+    # Normal path — L1 intent with L0 envelope
+    return RouteDecision(
+        intent=l1_result.intent,
+        confidence=l1_result.confidence,
+        reason=f"FinalDecision: {l1_result.intent}({l1_result.confidence:.2f})",
+        needs_commerce_layer=True,
+        execution_hint=l0_route.execution_hint,
+        control_context=l0_route.control_context,
+    )
+
+
 def _sanitize_response(text: str) -> str:
     """Check and rewrite responses that claim non-existent capabilities."""
     if not text:
@@ -240,29 +272,26 @@ def run(query: str, user_id: int | None = None,
 
     state.control_context = route.control_context
 
-    # ── Input Guard: ConversationSignals — gate BEFORE commerce layer ──
-    # Detects capability queries ("你能推荐吗"), stop/backtrack ("算了"),
-    # ack ("嗯嗯"), negative feedback ("不推荐这个").
-    # Without product signals → bypass commerce entirely → chat.
-    if route.needs_commerce_layer:
-        from .nodes.input_guard import detect_conversation_signals, _has_product_signal
-        conv_signals = detect_conversation_signals(query)
-        state.parallel_results["_conversation_signals"] = conv_signals.to_dict()
-        if conv_signals.any_signal() and not _has_product_signal(query):
-            route = RouteDecision(
-                intent="chat",
-                confidence=0.6,
-                reason=f"Input Guard: conv_signal detected",
-                needs_commerce_layer=False,
-                execution_hint="lightweight",
-                control_context=route.control_context,
-            )
-
     # ── 2. Commerce Layer (only when needed) ──
     commerce_result = None
     if route.needs_commerce_layer:
         from .commerce_intent import classify as classify_commerce
+        from .nodes.input_guard import detect_conversation_signals
         commerce_result = classify_commerce(query)
+
+        # ── Conversation signal fusion ──
+        conv_signals = detect_conversation_signals(query)
+        state.parallel_results["_conversation_signals"] = conv_signals.to_dict()
+        if conv_signals.any_signal():
+            intent_score = apply_signals(commerce_result, conv_signals)
+            state.parallel_results["_intent_score"] = intent_score.to_dict()
+            # Mutate commerce_result so FinalDecision sees corrected confidence
+            commerce_result.confidence = intent_score.adjusted_confidence
+
+    # ── L2: FinalDecision — single truth source ──
+    # Unifies L0 (route) + L1 (commerce_result) + ConversationSignals.
+    # ResponsePolicy reads ONLY this — never raw route or commerce_result.
+    final_route = _build_final_route(route, commerce_result)
 
     # ── 2.5 OrderAgent routing ──
     if commerce_result and commerce_result.intent == "order":
@@ -283,17 +312,17 @@ def run(query: str, user_id: int | None = None,
             result["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
             return result
 
-    # ── 3. Response Policy — resource scheduler ──
+    # ── 3. Response Policy — reads FinalDecision (single truth) ──
     from .response_policy import plan as policy_plan
-    plan = policy_plan(route, commerce_result)
+    plan = policy_plan(final_route, commerce_result)
 
     # ── Template path ──
     if plan.execution_mode == "template":
-        reply = _pick_template(route.intent)
+        reply = _pick_template(final_route.intent)
         return {
-            "reply": reply, "intent": route.intent,
-            "confidence": route.confidence, "ui_state": "done",
-            "message": route.reason, "blocks": [],
+            "reply": reply, "intent": final_route.intent,
+            "confidence": final_route.confidence, "ui_state": "done",
+            "message": final_route.reason, "blocks": [],
             "ranked_items": [], "tool_results": {},
             "session_id": session_id, "query_type": query_type,
             "runtime": {"phases": [{"phase": "routing", "label": "快速路由", "status": "ok", "ms": int((_time.time() - _start) * 1000)}], "total_ms": int((_time.time() - _start) * 1000)},
@@ -307,9 +336,9 @@ def run(query: str, user_id: int | None = None,
         state.user_memory = None
         state = chat_node(state)
         response = AIResponse(
-            ui_state=UIState.DONE, message=route.reason,
-            confidence=route.confidence, blocks=[],
-            reply=state.final_response, intent=route.intent,
+            ui_state=UIState.DONE, message=final_route.reason,
+            confidence=final_route.confidence, blocks=[],
+            reply=state.final_response, intent=final_route.intent,
         )
         result = response.model_dump()
         result.update(runtime={"phases": [{"phase": "routing", "label": "LLM直出", "status": "ok", "ms": int((_time.time() - _start) * 1000)}], "total_ms": int((_time.time() - _start) * 1000)}, explain=None, retrieval=None,
@@ -352,8 +381,8 @@ def run(query: str, user_id: int | None = None,
     # ── Pass state_router intent to entry_router via control_context ──
     # entry_router is an EXECUTOR — accepts preset for definitive intents.
     # "commerce" is deliberately excluded: entry_router + ConstraintParser own the fine-grained split.
-    if route.intent not in ("commerce", "unclear"):
-        state.control_context["preset_intent"] = route.intent
+    if final_route.intent not in ("commerce", "unclear"):
+        state.control_context["preset_intent"] = final_route.intent
 
     # ── 3.2 ConstraintParser: unified query classification ──
     # Single entry point replacing scattered sort/intent detection.
@@ -400,7 +429,7 @@ def run(query: str, user_id: int | None = None,
         query=query,
         commerce_confidence=_commerce_conf,
         recommend_type=_current_rec_type,
-        intent=route.intent,
+        intent=final_route.intent,
         user_id=_user_id_for_memory,
         has_history=_has_history,
     )
