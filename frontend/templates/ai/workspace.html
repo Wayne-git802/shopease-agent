@@ -24,7 +24,7 @@
                 <div class="empty-icon">💬</div>
                 <h3>Your AI shopping assistant</h3>
                 <div class="suggestion-chips">
-                    <button class="chip" onclick="useSuggestion('Recommend a budget laptop for a college student')">💻 Budget laptop</button>
+                    <button class="chip" onclick="useSuggestion('你能做什么呢')">🤔 你能做什么</button>
                     <button class="chip" onclick="useSuggestion('Compare iPhone vs Samsung flagship phones')">📱 Phone comparison</button>
                     <button class="chip" onclick="useSuggestion('What are the best-selling products this month?')">🔥 Best sellers</button>
                     <button class="chip" onclick="useSuggestion('Find me headphones under $100 with good reviews')">🎧 Budget headphones</button>
@@ -312,6 +312,35 @@ async function submitWorkspace() {
     const input = document.getElementById('workspaceInput');
     const query = input.value.trim();
     if (!query) return;
+
+    // ── Hardcoded replies (instant, no API) ──
+    const HARDCODED = {
+        '你能做什么呢': `您好！我是 ShopEase 的 AI 购物助手，可以帮您：
+
+<b>搜索与推荐商品</b> — 根据您的需求，快速找到合适的商品。
+<b>查询订单状态</b> — 查看物流、配送进度。
+<b>处理售后</b> — 协助您发起退款或取消订单（需您明确确认）。
+<b>解答平台问题</b> — 如活动规则、优惠券使用等。
+
+请直接告诉我需要什么帮助！`
+    };
+    if (HARDCODED[query]) {
+        const reply = HARDCODED[query];
+        const userMsg = {
+            id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36),
+            role: 'user', content: query, session_id: currentSessionId,
+            timestamp: Date.now(), artifacts: []
+        };
+        persistedMessages.push(userMsg);
+        persistedMessages.push({
+            id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36),
+            role: 'assistant', content: reply, session_id: currentSessionId,
+            timestamp: Date.now(), artifacts: []
+        });
+        input.value = ''; input.style.height = 'auto';
+        renderConversation();
+        return;
+    }
 
     // Auto-create session if needed
     if (IS_GUEST) {
