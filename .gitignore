@@ -1,33 +1,69 @@
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
 *.egg-info/
 dist/
 build/
+
+# Virtual Environment
 .venv/
-node_modules/
-*.sqlite3
-.vite/
-.DS_Store
-Thumbs.db
-.idea/
+venv/
+env/
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.tmp
+
+# Logs
 *.log
 *.pid
 logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
 backend/db.sqlite3
+
+# FAISS indexes (auto-generated)
 backend/data/faiss_index.bin
 backend/data/faiss_id_map.json
+
+# Django
+backend/staticfiles/
+backend/media/
+
+# Node.js
+node_modules/
+package-lock.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Archives
 *.zip
 *.7z
 *.rar
 *.tar.gz
-CLAUDE.md
-backend/staticfiles/
-backend/media/
-.hermes/
-_fix_env.py
-.env.tmp
+
+# Temp
 *.tmp
 *.bak
-.env
+*.temp
+*~
+
+# Cache
+.pytest_cache/
+.cache/
+*.cache
+.hermes/
