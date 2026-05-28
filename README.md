@@ -34,6 +34,59 @@ A full-stack, multi-role e-commerce platform built with **Django** and **LangGra
 - **Shop social** — Follow/unfollow shops, product reviews
 - **Dockerized** — `docker compose up` runs the full stack with zero local dependencies
 
+## Architecture
+
+```mermaid
+graph TB
+    User((User)) --> Workspace["🖥 AI Workspace<br/>Django Template"]
+    
+    subgraph API["Django API Layer"]
+        Django["Django 5.2"]
+        AgentEntry["/api/agents/ai/"]
+        Django --> AgentEntry
+    end
+    
+    Workspace --> Django
+    
+    subgraph Agents["LangGraph Agent Layer"]
+        Router["🔀 State Router<br/>Intent Classification"]
+        Commerce["🛒 Commerce<br/>Search · Browse"]
+        Cart["🛍 Cart<br/>Add · Checkout"]
+        Purchase["💳 Purchase<br/>Pay · Confirm"]
+        Order["📦 Order<br/>Track · Refund"]
+        Tools["🔧 Tool Registry<br/>Product · Order · User"]
+        
+        Router --> Commerce
+        Router --> Cart
+        Router --> Purchase
+        Router --> Order
+        Commerce & Cart & Purchase & Order --> Tools
+    end
+    
+    AgentEntry --> Router
+    
+    subgraph External["External Services"]
+        DeepSeek["🤖 DeepSeek API<br/>LLM Inference"]
+        FAISS["🔍 FAISS<br/>Vector Search"]
+    end
+    
+    Tools --> DeepSeek
+    Tools --> FAISS
+    
+    subgraph Data["Data Layer"]
+        MySQL[("🗄 MySQL 8.4<br/>Products · Orders<br/>Users · Sessions")]
+    end
+    
+    Tools --> MySQL
+    Django --> MySQL
+
+    style User fill:#0891b2,stroke:#22d3ee,color:#fff
+    style Agents fill:#4c1d95,stroke:#a78bfa,color:#fff
+    style API fill:#064e3b,stroke:#34d399,color:#fff
+    style External fill:#78350f,stroke:#fbbf24,color:#fff
+    style Data fill:#1e293b,stroke:#94a3b8,color:#fff
+```
+
 ## Why Docker
 
 This project uses **MySQL** as its database engine. Unlike SQLite (a single file with zero setup), MySQL requires a running server, user accounts, schema configuration, and manual data import — steps that differ across Windows, macOS, and Linux and are prone to environment-specific failures.
