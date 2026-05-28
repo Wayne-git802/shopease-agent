@@ -1,5 +1,29 @@
-python-dotenv>=1.0.0
+# Core
 Django>=5.2,<6.0
 djangorestframework>=3.15
 djangorestframework-simplejwt>=5.3
 mysqlclient>=2.2
+python-dotenv>=1.0
+
+# AI / LangGraph
+langgraph>=1.2
+langchain-core>=1.4
+langgraph-checkpoint>=4.1
+langgraph-prebuilt>=1.1
+
+# Vector Search
+faiss-cpu>=1.14
+sentence-transformers>=3.0
+
+# NLP & ML
+numpy>=2.0
+Jinja2>=3.1
+requests>=2.31
+pydantic>=2.0
+
+# Hugging Face
+huggingface_hub>=0.26
+
+# Utils
+certifi>=2024.0
+orjson>=3.11

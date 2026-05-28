@@ -1,36 +1,38 @@
-# ShopEase - Full-Stack E-Commerce Platform
+# ShopEase — Full-Stack E-Commerce Platform with AI Agent
 
 <p align="center">
   <img src="https://img.shields.io/badge/Django-5.2-092E20?logo=django&logoColor=white" alt="Django">
-  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" alt="React">
-  <img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/MySQL-8.4-4479A1?logo=mysql&logoColor=white" alt="MySQL">
+  <img src="https://img.shields.io/badge/LangGraph-Agent-7C3AED?logo=langchain&logoColor=white" alt="LangGraph">
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Auth-JWT-000000?logo=jsonwebtokens&logoColor=white" alt="JWT">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
 
-A full-stack, multi-role e-commerce platform built with **Django REST Framework** and **React + TypeScript**. Features JWT authentication, order lifecycle management, inventory tracking, and a unified audit logging system — all containerized with Docker Compose for one-command deployment.
+A full-stack, multi-role e-commerce platform built with **Django** and **LangGraph**, featuring an AI-powered shopping assistant that handles product discovery, cart management, order tracking, and purchase flow — all through natural conversation. JWT authentication, order lifecycle management, inventory tracking, and a unified audit logging system.
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 19, TypeScript, Vite 7 |
+| Frontend | Django Templates, vanilla JS |
 | Backend | Django 5.2, Django REST Framework, SimpleJWT |
+| AI Agent | LangGraph (multi-agent orchestration), DeepSeek |
+| Vector Search | FAISS, sentence-transformers |
 | Database | MySQL 8.4 |
 | Containerization | Docker Compose |
 | Auth | JWT (access + refresh token) |
 
 ## Features
 
+- **AI Shopping Assistant** — Natural conversation interface for product discovery, cart management, order tracking, and purchase flow via LangGraph multi-agent orchestration
+- **Multi-agent architecture** — Commerce, Cart, Purchase, and Order agents coordinated by a state router with fallback handling
 - **Multi-role system** — Admin, Seller, and Customer with granular permissions
 - **Product catalog** — Two-level category hierarchy, search, inventory management with transaction ledger
 - **Order lifecycle** — Cart → Checkout → Order (paid → shipped → completed) → Refund state machine
-- **Audit logging** — 69,000+ audit records with full operation traceability across all modules
-- **Shop social** — Follow/unfollow shops, product reviews with moderation queue
+- **Audit logging** — Full operation traceability across all modules
+- **Shop social** — Follow/unfollow shops, product reviews
 - **Dockerized** — `docker compose up` runs the full stack with zero local dependencies
-- **Hot reload** — Source code mounted into containers; edits appear instantly in browser
 
 ## Why Docker
 
@@ -80,15 +82,19 @@ All source code is mounted into containers with hot-reload enabled:
 
 ```
 ├── backend/                # Django REST API
+│   ├── agents/             # LangGraph AI Agent (multi-agent orchestration)
+│   │   ├── api/            # Agent API views & serializers
+│   │   ├── graph/          # LangGraph state machine & router
+│   │   ├── core/           # LLM client, tool registry, base agent
+│   │   └── ops/            # Observability, alerts, traces
 │   ├── users/              # User model, JWT auth, profile
 │   ├── products/           # Product, Category, Shop, Inventory, Review
 │   ├── orders/             # Order, OrderItem, Cart, Refund
-│   └── admin_api/          # Admin dashboard, audit logs, DB explorer
-├── frontend/               # React SPA
-│   └── src/
-│       ├── App.tsx         # Main application component & routing
-│       ├── api.ts          # Unified API client with JWT auto-refresh
-│       └── types.ts        # TypeScript type definitions
+│   └── admin_api/          # Admin dashboard, audit logs
+├── frontend/               # Django Templates + vanilla JS
+│   └── templates/
+│       ├── ai/             # AI Workspace chat interface
+│       └── users/          # Login, Register pages
 ├── docker/mysql/init/      # Database dump (auto-imported on first launch)
 ├── docker-compose.yml      # Service orchestration
 └── .env                    # Environment configuration
@@ -99,10 +105,9 @@ All source code is mounted into containers with hot-reload enabled:
 | Role | Username | Password |
 |---|---|---|
 | Admin | admin | admin123 |
-| Customer | alice | password123 |
-| Customer | bob | password123 |
-| Seller | seller01 | seller123 |
-| Seller | s00001 | seller123 |
+| Customer | c00001 | gi6AWCRM7fLh |
+| Seller | s00001 | pZ9R9a%jcqhW |
+| CSV Admin | a00001 | HF2z8n#xytDp |
 
 ## Running Without Docker
 
@@ -110,26 +115,27 @@ If Docker is not available, install the following and run each service manually:
 
 ### Prerequisites
 
-- Python 3.10+
-- Node.js 18+
+- Python 3.11+
 - MySQL 8.4
 
-### Backend
+### Setup
 
 ```bash
+# 1. Clone & install dependencies
 cd backend
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python manage.py migrate
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env — set DB_PASSWORD, DEEPSEEK_API_KEY
+
+# 3. Run
 python manage.py runserver 0.0.0.0:8000
 ```
 
-### Frontend
-
-```bash
-cd frontend
-npm install
-npx vite --host 0.0.0.0 --port 5173
-```
+Then open http://127.0.0.1:8000/
 
 ### Database
 
