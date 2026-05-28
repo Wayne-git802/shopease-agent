@@ -5,8 +5,8 @@
 """
 commerce_intent.py — Layer 1 IntentClassifier for fine-grained commerce intents.
 
-Classifies a commerce-level query into one of four sub-intents:
-  search, recommend, order, analytics.
+Classifies a commerce-level query into one of six sub-intents:
+  search, recommend, explore, cart, order, purchase, analytics.
 
 Pure rules-based, no LLM, no embeddings.
 Weighted signal scoring with competition penalty and additive product-noun boost.
@@ -49,6 +49,15 @@ SIGNALS: dict[str, dict[str, set[str]]] = {
         "medium": {"礼物", "热门", "流行", "适合", "gift", "popular", "我想买", "我要买"},
         "weak":   {"哪个好", "选哪个", "怎么样", "帮我挑", "推荐一下", "买", "购买"},
     },
+    "explore": {
+        # Open-ended browsing: "有什么好看的", "有没有好用的", "最近流行什么"
+        # No specific category or constraint — database-guided exploration
+        "strong": {"有什么好看的", "最近流行", "最近热门", "有没有好用的", "随便看看",
+                   "有什么推荐", "推荐点", "爆款", "热销", "有什么新", "新出的",
+                   "what's good", "what's popular", "any recommendations"},
+        "medium": {"好看的", "好用的", "不错的", "值得", "有意思的"},
+        "weak":   {"有没有", "有什么", "推荐", "看看", "逛逛"},
+    },
     "cart": {
         "strong": {"加入购物车", "加购", "加购物车", "add to cart"},
         "medium": {"购物车", "看看购物车", "cart", "view cart", "先存着", "收藏"},
@@ -88,7 +97,7 @@ PRODUCT_NOUNS: set[str] = {
 
 @dataclass
 class IntentResult:
-    intent: str        # "search"|"recommend"|"order"|"analytics"
+    intent: str        # "search"|"recommend"|"explore"|"cart"|"order"|"purchase"|"analytics"
     confidence: float  # 0.0-1.0
     fallback: str      # "chat"
     version: str = "v1"

@@ -32,7 +32,12 @@ _KEYWORDS: dict[str, set[str]] = {
              "how are you", "what can you do", "怎么用"},
     "commerce": {"搜索", "找", "推荐", "买", "耳机", "手机", "电脑", "订单", "退款",
                  "物流", "取消", "发货", "价格", "送", "礼物", "送礼", "加购", "购物车",
-                 "recommend", "search", "buy", "order", "refund", "track", "cancel"},
+                 "recommend", "search", "buy", "order", "refund", "track", "cancel",
+                 # Explore / open-ended browsing
+                 "好看", "好用", "流行", "热门", "爆款", "热销", "新款", "新出",
+                 "有什么", "有没有", "值得", "划算", "推荐", "逛逛", "看看", "浏览",
+                 "建议", "性价比", "帮选", "帮我", "哪个好", "怎么样", "选哪个",
+                 "适合", "适合我", "学生党", "送女友", "送男朋友", "便宜"},
 }
 
 SESSION_TTL_SECONDS: int = 1800  # 30 minutes
@@ -315,20 +320,23 @@ def route(query: str, session: object | None = None) -> RouteDecision:
     # ── Layer 3: Policy Engine (execution + cost) ──
     execution_hint, needs_llm, needs_db, needs_commerce = _plan_execution(raw_intent, control_context)
 
-    # ── Commerce confidence gate ──
-    # If commerce intent but Layer 1 would produce low confidence,
-    # degrade to lightweight chat instead of forcing full_graph.
+    # ── Commerce domain gate ──
+    # Commerce detected → ALWAYS enter commerce execution graph.
+    # Never downgrade to chat — even low-confidence commerce queries
+    # must search the database, not hallucinate via bare LLM.
+    # execution_hint controls depth: full_graph for high confidence,
+    # graph_light for low confidence — but BOTH go through search_node.
     if raw_intent == "commerce":
         from .commerce_intent import classify as classify_commerce, CONFIDENCE_CONFIG
         commerce_result = classify_commerce(query)
-        decay = _get_confidence_decay(session)
-        effective_confidence = commerce_result.confidence * decay
-        if effective_confidence < CONFIDENCE_CONFIG["chat_fallback"]:
-            raw_intent = "chat"
-            execution_hint = "lightweight"
-            needs_commerce = False
-            needs_db = False
-            confidence = effective_confidence
+        confidence = commerce_result.confidence
+        if confidence < CONFIDENCE_CONFIG["low_confidence"]:
+            execution_hint = "full_graph"  # still graph, but entry_router handles fallback
+        else:
+            execution_hint = "full_graph"
+        needs_llm = True
+        needs_db = True
+        needs_commerce = True
 
     # ── Build reason ──
     reason = _INTENT_LABELS.get(raw_intent,

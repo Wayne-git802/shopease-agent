@@ -376,6 +376,10 @@ def run(query: str, user_id: int | None = None,
             return pr
         return result
 
+    # ── 2.8 Explore — open-ended browsing → popular products ──
+    if commerce_result and commerce_result.intent == "explore":
+        state.parallel_results["recommend_type"] = "popular"
+
     # ── 3. Response Policy — reads FinalDecision (single truth) ──
     from .response_policy import plan as policy_plan
     plan = policy_plan(final_route, commerce_result)

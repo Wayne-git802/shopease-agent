@@ -34,12 +34,12 @@ class ExecutionPlan:
 # ──────────────────────────────────┼───────────────┼──────────────┼──────────────┼───────────
 # intent=greeting, any confidence   | template      | none         | chat         | 0
 # intent=chat, any confidence       | llm_direct    | none         | chat         | 200
-# intent=commerce, confidence<0.3   | llm_direct    | none         | chat         | 200
-# intent=commerce, confidence 0.3.. | graph_light   | preferences  | graph_proxy  | 500
-# intent=search/recommend, conf>.5  | graph_full    | full         | graph_proxy  | 2000
+# intent=commerce, confidence<0.3   | graph_light   | preferences  | graph_proxy  | 500
+# intent=commerce, confidence 0.3+  | graph_full    | full         | graph_proxy  | 2000
+# intent=search/recommend/explore   | graph_full    | full         | graph_proxy  | 2000
 # intent=order, confidence>0.3      | graph_light   | purchase     | graph_proxy  | 500
 # intent=analytics, any confidence  | graph_full    | none         | graph_proxy  | 2000
-# fallback (unknown)                | llm_direct    | none         | chat         | 200
+# fallback (unknown)                | graph_light   | none         | graph_proxy  | 500
 
 
 def _build_plan(exec_mode: str, memory: str, llm_mode: str, max_tokens: int) -> ExecutionPlan:
@@ -79,12 +79,13 @@ def plan(route, commerce_result=None) -> ExecutionPlan:
         if sub == "order" and conf > 0.3:
             return _build_plan("graph_light", "purchase", "graph_proxy", 500)
 
-        if sub in ("search", "recommend") and conf > 0.5:
+        if sub in ("search", "recommend", "explore") and conf > 0.3:
             return _build_plan("graph_full", "full", "graph_proxy", 2000)
 
-        # Commerce confidence gate
+        # Commerce confidence gate — low confidence still goes through graph,
+        # never bare LLM (no tool access → hallucination risk)
         if conf < 0.3:
-            return _build_plan("llm_direct", "none", "chat", 200)
+            return _build_plan("graph_light", "preferences", "graph_proxy", 500)
 
         return _build_plan("graph_light", "preferences", "graph_proxy", 500)
 
@@ -96,4 +97,4 @@ def plan(route, commerce_result=None) -> ExecutionPlan:
         return _build_plan("llm_direct", "none", "chat", 200)
 
     # ── Fallback: unknown ───────────────────────────────────
-    return _build_plan("llm_direct", "none", "chat", 200)
+    return _build_plan("graph_light", "none", "graph_proxy", 500)
