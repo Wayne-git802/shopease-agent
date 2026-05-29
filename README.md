@@ -19,26 +19,24 @@ A LangGraph-powered multi-agent e-commerce system where AI handles product disco
 graph TB
     Start((START)) --> EntryRouter
 
-    EntryRouter["🔀 entry_router<br/>Jaccard fast-path<br/>+ safe degrade"] 
+    EntryRouter["entry_router<br/>Jaccard fast-path<br/>+ safe degrade"]
 
-    EntryRouter -->|"search"| Search["🔍 search<br/>3-strategy hybrid retrieval<br/>SQL + FAISS + RRF"]
-    EntryRouter -->|"recommend"| Recommend["⭐ recommend<br/>RecommendEngine<br/>deterministic, no LLM"]
-    EntryRouter -->|"order"| Order["📦 order<br/>deterministic DB reads<br/>no LLM"]
-    EntryRouter -->|"ops"| Ops["⚙️ ops<br/>system health + alerts<br/>no LLM"]
-    EntryRouter -->|"analytics"| Analytics["📊 analytics<br/>MetaAnalyzer<br/>markdown report"]
-    EntryRouter -->|"chat"| Chat["💬 chat<br/>general LLM conversation"]
+    EntryRouter -->|"search"| Search["search<br/>3-strategy hybrid retrieval<br/>SQL + FAISS + RRF"]
+    EntryRouter -->|"recommend"| Recommend["recommend<br/>RecommendEngine<br/>deterministic, no LLM"]
+    EntryRouter -->|"order"| Order["order<br/>deterministic DB reads<br/>no LLM"]
+    EntryRouter -->|"analytics"| Analytics["analytics<br/>MetaAnalyzer<br/>markdown report"]
+    EntryRouter -->|"chat"| Chat["chat<br/>general LLM conversation"]
 
     Search --> Merge
     Recommend --> Merge
 
-    Merge["🔄 merge<br/>per-source normalization<br/>policy-aware reranker<br/>MMR de-duplication"] --> Response
+    Merge["merge<br/>per-source normalization<br/>policy-aware reranker<br/>MMR de-duplication"] --> Response
 
     Order --> Chat
-    Ops --> Chat
     Chat --> Response
     Analytics --> Response
 
-    Response["📝 response<br/>format final output<br/>clarify / products / text"] --> End((END))
+    Response["response<br/>format final output<br/>clarify / products / text"] --> End((END))
 
     style Start fill:#64748b,stroke:#94a3b8,color:#fff
     style End fill:#64748b,stroke:#94a3b8,color:#fff
@@ -47,7 +45,6 @@ graph TB
     style Recommend fill:#0891b2,stroke:#22d3ee,color:#fff
     style Merge fill:#d97706,stroke:#fbbf24,color:#fff
     style Order fill:#059669,stroke:#34d399,color:#fff
-    style Ops fill:#059669,stroke:#34d399,color:#fff
     style Analytics fill:#db2777,stroke:#f472b6,color:#fff
     style Chat fill:#4f46e5,stroke:#818cf8,color:#fff
     style Response fill:#64748b,stroke:#94a3b8,color:#fff
@@ -63,7 +60,7 @@ graph TB
 
 - **merge** — Policy-Aware Reranker. Normalizes scores from disparate sources (SQL raw scores, FAISS similarity, CF scores) within their own spaces before fusion. Intent-aware merge policies with MMR de-duplication for diverse results.
 
-- **order + ops** — Fully deterministic. No LLM calls — pure DB reads and structured output. Both route through **chat_node** for natural language wrapping.
+- **order** — Fully deterministic. No LLM calls — pure DB reads and structured output. Routes through **chat_node** for natural language wrapping.
 
 - **analytics** — Generates structured markdown reports via MetaAnalyzer. Routes directly to response (no chat wrapping needed).
 
@@ -100,9 +97,9 @@ The entry_router is an **executor**, not a decision-maker. It runs deterministic
 
 ## Features
 
-- **Multi-agent architecture** — 9-node LangGraph StateGraph: entry_router, search, recommend, merge, order, ops, analytics, chat, response
+- **Multi-agent architecture** — 8-node LangGraph StateGraph: entry_router, search, recommend, merge, order, analytics, chat, response
 - **Dual-path retrieval** — search (SQL + FAISS hybrid) and recommend (CF) execute in parallel, unified by policy-aware merge
-- **Deterministic pathways** — order and ops nodes run with zero LLM calls; entry_router degrades safely without LLM escalation
+- **Deterministic pathways** — order node runs with zero LLM calls; entry_router degrades safely without LLM escalation
 - **Multi-role system** — Admin, Seller, and Customer with granular permissions
 - **Product catalog** — Two-level category hierarchy, search, inventory management with transaction ledger
 - **Order lifecycle** — Cart → Checkout → Order (paid → shipped → completed) → Refund state machine
@@ -156,9 +153,8 @@ All source code is mounted into containers with hot-reload enabled:
 │   │   │   │   ├── search_node.py   # 311 lines — hybrid retrieval
 │   │   │   │   ├── recommend_node.py # 277 lines — CF engine
 │   │   │   │   ├── merge_node.py    # 404 lines — policy reranker
-│   │   │   │   ├── order_node.py    # 73 lines — deterministic
-│   │   │   │   ├── ops_node.py      # 49 lines — system health
-│   │   │   │   ├── analytics_node.py # 43 lines — report gen
+│   │   │   ├── order_node.py    # 73 lines — deterministic
+│   │   │   ├── analytics_node.py # 43 lines — report gen
 │   │   │   │   ├── chat_node.py     # 96 lines — LLM fallback
 │   │   │   │   └── response_node.py # 63 lines — output formatting
 │   │   │   └── contracts/    # Typed I/O contracts per node
