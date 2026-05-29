@@ -1,4 +1,4 @@
-# ShopEase — Full-Stack E-Commerce Platform with AI Agent
+# ShopEase — Multi-Agent E-Commerce System powered by LangGraph
 
 <p align="center">
   <img src="https://img.shields.io/badge/Django-5.2-092E20?logo=django&logoColor=white" alt="Django">
@@ -9,7 +9,82 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
 
-A full-stack, multi-role e-commerce platform built with **Django** and **LangGraph**, featuring an AI-powered shopping assistant that handles product discovery, cart management, order tracking, and purchase flow — all through natural conversation. JWT authentication, order lifecycle management, inventory tracking, and a unified audit logging system.
+A LangGraph-powered multi-agent e-commerce system where AI handles product discovery, cart management, order tracking, and purchase flow — all through natural conversation. JWT authentication, order lifecycle management, inventory tracking, and unified audit logging.
+
+## Architecture
+
+### Agent Graph (LangGraph StateGraph)
+
+```mermaid
+graph TB
+    Start((START)) --> EntryRouter
+
+    EntryRouter["🔀 entry_router<br/>Jaccard fast-path<br/>+ safe degrade"] 
+
+    EntryRouter -->|"search"| Search["🔍 search<br/>3-strategy hybrid retrieval<br/>SQL + FAISS + RRF"]
+    EntryRouter -->|"recommend"| Recommend["⭐ recommend<br/>RecommendEngine<br/>deterministic, no LLM"]
+    EntryRouter -->|"order"| Order["📦 order<br/>deterministic DB reads<br/>no LLM"]
+    EntryRouter -->|"ops"| Ops["⚙️ ops<br/>system health + alerts<br/>no LLM"]
+    EntryRouter -->|"analytics"| Analytics["📊 analytics<br/>MetaAnalyzer<br/>markdown report"]
+    EntryRouter -->|"chat"| Chat["💬 chat<br/>general LLM conversation"]
+
+    Search --> Merge
+    Recommend --> Merge
+
+    Merge["🔄 merge<br/>per-source normalization<br/>policy-aware reranker<br/>MMR de-duplication"] --> Response
+
+    Order --> Chat
+    Ops --> Chat
+    Chat --> Response
+    Analytics --> Response
+
+    Response["📝 response<br/>format final output<br/>clarify / products / text"] --> End((END))
+
+    style Start fill:#64748b,stroke:#94a3b8,color:#fff
+    style End fill:#64748b,stroke:#94a3b8,color:#fff
+    style EntryRouter fill:#7c3aed,stroke:#a78bfa,color:#fff
+    style Search fill:#0891b2,stroke:#22d3ee,color:#fff
+    style Recommend fill:#0891b2,stroke:#22d3ee,color:#fff
+    style Merge fill:#d97706,stroke:#fbbf24,color:#fff
+    style Order fill:#059669,stroke:#34d399,color:#fff
+    style Ops fill:#059669,stroke:#34d399,color:#fff
+    style Analytics fill:#db2777,stroke:#f472b6,color:#fff
+    style Chat fill:#4f46e5,stroke:#818cf8,color:#fff
+    style Response fill:#64748b,stroke:#94a3b8,color:#fff
+```
+
+### Graph Design
+
+- **entry_router** — Two-tier intent classifier. Jaccard token similarity for fast-path matching; low-confidence queries safely degrade to "chat" rather than making unnecessary LLM calls. Also handles preset intents, ConstraintParser overrides, and session memory for multi-turn follow-ups.
+
+- **search + recommend** — Parallel fan-out. Both nodes execute independently:
+  - **search**: 3-strategy hybrid retrieval (SQL_ONLY / SEMANTIC / HYBRID), using FAISS vector search with RRF fusion
+  - **recommend**: Delegates to RecommendEngine for collaborative filtering + category matching
+
+- **merge** — Policy-Aware Reranker. Normalizes scores from disparate sources (SQL raw scores, FAISS similarity, CF scores) within their own spaces before fusion. Intent-aware merge policies with MMR de-duplication for diverse results.
+
+- **order + ops** — Fully deterministic. No LLM calls — pure DB reads and structured output. Both route through **chat_node** for natural language wrapping.
+
+- **analytics** — Generates structured markdown reports via MetaAnalyzer. Routes directly to response (no chat wrapping needed).
+
+- **chat** — General-purpose LLM fallback. Handles greetings, help, and any unclassified queries.
+
+### Routing Logic (entry_router)
+
+```
+User Query
+    │
+    ├─ P1: State Router preset? (control_context.preset_intent) → route
+    ├─ P2: ConstraintParser override? (search_plan) → route
+    ├─ P3: Session memory pending? (multi-turn follow-up) → route
+    │
+    └─ Fast-path: Jaccard token similarity + keyword boosting
+         │
+         ├─ confidence ≥ threshold (default 0.85) → route
+         └─ confidence < threshold → safe degrade to "chat"
+```
+
+The entry_router is an **executor**, not a decision-maker. It runs deterministic classification first; when uncertain, it defaults to "chat" rather than escalating to LLM. This keeps latency low and routing predictable.
 
 ## Tech Stack
 
@@ -17,7 +92,7 @@ A full-stack, multi-role e-commerce platform built with **Django** and **LangGra
 |---|---|
 | Frontend | Django Templates, vanilla JS |
 | Backend | Django 5.2, Django REST Framework, SimpleJWT |
-| AI Agent | LangGraph (multi-agent orchestration), DeepSeek |
+| AI Agent | LangGraph (StateGraph), DeepSeek API |
 | Vector Search | FAISS, sentence-transformers |
 | Database | MySQL 8.4 |
 | Containerization | Docker Compose |
@@ -25,78 +100,15 @@ A full-stack, multi-role e-commerce platform built with **Django** and **LangGra
 
 ## Features
 
-- **AI Shopping Assistant** — Natural conversation interface for product discovery, cart management, order tracking, and purchase flow via LangGraph multi-agent orchestration
-- **Multi-agent architecture** — Commerce, Cart, Purchase, and Order agents coordinated by a state router with fallback handling
+- **Multi-agent architecture** — 9-node LangGraph StateGraph: entry_router, search, recommend, merge, order, ops, analytics, chat, response
+- **Dual-path retrieval** — search (SQL + FAISS hybrid) and recommend (CF) execute in parallel, unified by policy-aware merge
+- **Deterministic pathways** — order and ops nodes run with zero LLM calls; entry_router degrades safely without LLM escalation
 - **Multi-role system** — Admin, Seller, and Customer with granular permissions
 - **Product catalog** — Two-level category hierarchy, search, inventory management with transaction ledger
 - **Order lifecycle** — Cart → Checkout → Order (paid → shipped → completed) → Refund state machine
 - **Audit logging** — Full operation traceability across all modules
 - **Shop social** — Follow/unfollow shops, product reviews
 - **Dockerized** — `docker compose up` runs the full stack with zero local dependencies
-
-## Architecture
-
-```mermaid
-graph TB
-    User((User)) --> Workspace["🖥 AI Workspace<br/>Django Template"]
-    
-    subgraph API["Django API Layer"]
-        Django["Django 5.2"]
-        AgentEntry["/api/agents/ai/"]
-        Django --> AgentEntry
-    end
-    
-    Workspace --> Django
-    
-    subgraph Agents["LangGraph Agent Layer"]
-        Router["🔀 State Router<br/>Intent Classification"]
-        Commerce["🛒 Commerce<br/>Search · Browse"]
-        Cart["🛍 Cart<br/>Add · Checkout"]
-        Purchase["💳 Purchase<br/>Pay · Confirm"]
-        Order["📦 Order<br/>Track · Refund"]
-        Tools["🔧 Tool Registry<br/>Product · Order · User"]
-        
-        Router --> Commerce
-        Router --> Cart
-        Router --> Purchase
-        Router --> Order
-        Commerce & Cart & Purchase & Order --> Tools
-    end
-    
-    AgentEntry --> Router
-    
-    subgraph External["External Services"]
-        DeepSeek["🤖 DeepSeek API<br/>LLM Inference"]
-        FAISS["🔍 FAISS<br/>Vector Search"]
-    end
-    
-    Tools --> DeepSeek
-    Tools --> FAISS
-    
-    subgraph Data["Data Layer"]
-        MySQL[("🗄 MySQL 8.4<br/>Products · Orders<br/>Users · Sessions")]
-    end
-    
-    Tools --> MySQL
-    Django --> MySQL
-
-    style User fill:#0891b2,stroke:#22d3ee,color:#fff
-    style Agents fill:#4c1d95,stroke:#a78bfa,color:#fff
-    style API fill:#064e3b,stroke:#34d399,color:#fff
-    style External fill:#78350f,stroke:#fbbf24,color:#fff
-    style Data fill:#1e293b,stroke:#94a3b8,color:#fff
-```
-
-## Why Docker
-
-This project uses **MySQL** as its database engine. Unlike SQLite (a single file with zero setup), MySQL requires a running server, user accounts, schema configuration, and manual data import — steps that differ across Windows, macOS, and Linux and are prone to environment-specific failures.
-
-Docker encapsulates the entire runtime — Python, Node.js, MySQL, and environment configuration — into a single reproducible environment. This ensures:
-
-- **Consistency**: every machine runs the identical stack, eliminating "it works on my machine" issues
-- **Zero local dependencies**: no need to install Python, Node.js, or MySQL separately
-- **Automated setup**: the database is provisioned and populated on first launch with no manual steps
-- **Industry standard**: Docker Compose is the default deployment method for modern web applications on GitHub
 
 ## Quick Start
 
@@ -136,21 +148,35 @@ All source code is mounted into containers with hot-reload enabled:
 ```
 ├── backend/                # Django REST API
 │   ├── agents/             # LangGraph AI Agent (multi-agent orchestration)
-│   │   ├── api/            # Agent API views & serializers
-│   │   ├── graph/          # LangGraph state machine & router
-│   │   ├── core/           # LLM client, tool registry, base agent
-│   │   └── ops/            # Observability, alerts, traces
-│   ├── users/              # User model, JWT auth, profile
-│   ├── products/           # Product, Category, Shop, Inventory, Review
-│   ├── orders/             # Order, OrderItem, Cart, Refund
-│   └── admin_api/          # Admin dashboard, audit logs
-├── frontend/               # Django Templates + vanilla JS
+│   │   ├── graph/          # StateGraph definition + nodes
+│   │   │   ├── graph_builder.py   # Compiled graph singleton
+│   │   │   ├── state.py           # AgentState (SSOT)
+│   │   │   ├── nodes/             # 9 graph nodes
+│   │   │   │   ├── entry_router.py  # 368 lines — two-tier classifier
+│   │   │   │   ├── search_node.py   # 311 lines — hybrid retrieval
+│   │   │   │   ├── recommend_node.py # 277 lines — CF engine
+│   │   │   │   ├── merge_node.py    # 404 lines — policy reranker
+│   │   │   │   ├── order_node.py    # 73 lines — deterministic
+│   │   │   │   ├── ops_node.py      # 49 lines — system health
+│   │   │   │   ├── analytics_node.py # 43 lines — report gen
+│   │   │   │   ├── chat_node.py     # 96 lines — LLM fallback
+│   │   │   │   └── response_node.py # 63 lines — output formatting
+│   │   │   └── contracts/    # Typed I/O contracts per node
+│   │   ├── core/             # LLM client, tool registry
+│   │   ├── commerce/         # RecommendEngine, search utilities
+│   │   ├── meta/             # MetaAnalyzer (analytics)
+│   │   └── api/              # Agent API views
+│   ├── users/                # User model, JWT auth, profile
+│   ├── products/             # Product, Category, Shop, Inventory, Review
+│   ├── orders/               # Order, OrderItem, Cart, Refund
+│   └── admin_api/            # Admin dashboard, audit logs
+├── frontend/                 # Django Templates + vanilla JS
 │   └── templates/
-│       ├── ai/             # AI Workspace chat interface
-│       └── users/          # Login, Register pages
-├── docker/mysql/init/      # Database dump (auto-imported on first launch)
-├── docker-compose.yml      # Service orchestration
-└── .env                    # Environment configuration
+│       ├── ai/               # AI Workspace chat interface
+│       └── users/            # Login, Register pages
+├── docker/mysql/init/        # Database dump (auto-imported on first launch)
+├── docker-compose.yml        # Service orchestration
+└── .env                      # Environment configuration
 ```
 
 ## Demo Accounts
@@ -197,7 +223,3 @@ Import the pre-loaded SQL dump into your local MySQL instance:
 ```bash
 mysql -u root -p < docker/mysql/init/01_dump.sql
 ```
-
----
-
-Developed with AI-assisted software engineering tools.
