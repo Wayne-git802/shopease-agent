@@ -306,3 +306,51 @@ class SessionTrace(models.Model):
 
     def __str__(self):
         return f"[{self.intent}] {self.query[:50]} ({self.total_ms}ms)"
+
+
+# ── CartWorkflow — CartAgent multi-turn state ─────────────────
+
+class CartWorkflow(models.Model):
+    """Persistent workflow state for CartAgent multi-turn cart interactions."""
+
+    session_id = models.CharField(max_length=64, unique=True, db_index=True)
+    workflow_id = models.CharField(max_length=64)
+    current_step = models.CharField(max_length=32, default='idle')
+    focused_item = models.JSONField(null=True, blank=True)  # {"product_id": int, "name": str, "price": float}
+    focused_at = models.FloatField(default=0)  # unix timestamp
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'agents_cart_workflow'
+        indexes = [
+            models.Index(fields=['session_id']),
+        ]
+
+    def __str__(self):
+        return f"[{self.workflow_id[:8]}] step={self.current_step}"
+
+
+# ── PurchaseWorkflow — CommerceAgent purchase state ────────────
+
+class PurchaseWorkflow(models.Model):
+    """Persistent workflow state for CommerceAgent purchase transactions."""
+
+    session_id = models.CharField(max_length=64, unique=True, db_index=True)
+    workflow_id = models.CharField(max_length=64)
+    current_step = models.CharField(max_length=32, default='idle')
+    selected_product_id = models.IntegerField(null=True, blank=True)
+    confirm_type = models.CharField(max_length=32, default='')
+    confirm_token = models.CharField(max_length=64, default='')
+    confirm_expires_at = models.DateTimeField(null=True, blank=True)
+    idempotency_key = models.CharField(max_length=64, default='')
+    snapshot_hash = models.CharField(max_length=32, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'agents_purchase_workflow'
+        indexes = [
+            models.Index(fields=['session_id']),
+        ]
+
+    def __str__(self):
+        return f"[{self.workflow_id[:8]}] step={self.current_step}"

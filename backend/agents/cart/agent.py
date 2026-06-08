@@ -33,23 +33,35 @@ from .repository import (
 
 logger = logging.getLogger(__name__)
 
-# ── In-process CartSessionState store ───────────────────────────
-# Pattern follows agents/graph/session_memory.py:
-#   in-process dict keyed by session_id, TTL handled by state machine.
-#   No DB — CartSessionState lives in memory only.
-
-_store: dict[str, CartSessionState] = {}
+# ── CartSessionState persistence ───────────────────────────────
+# DB-backed via CartWorkflow model — survives process restart.
+# TTL handled by state machine (focused_item expiry).
 
 
 def _load_state(session_id: str) -> CartSessionState:
-    """Load or initialize CartSessionState for the session.
+    """Load or initialize CartSessionState from DB.
 
     Auto-expires stale focused_item via is_focus_expired().
     """
-    state = _store.get(session_id)
-    if state is None:
+    from agents.models import CartWorkflow
+    wf = CartWorkflow.objects.filter(session_id=session_id).first()
+    if wf:
+        focused = wf.focused_item or {}
+        state = CartSessionState(
+            workflow_id=wf.workflow_id,
+            current_step=CartStep(int(wf.current_step)),
+            focused_item=focused if focused else None,
+            focused_at=wf.focused_at,
+        )
+    else:
         state = CartSessionState(workflow_id=f"wf_{uuid.uuid4().hex[:16]}")
-        _store[session_id] = state
+        CartWorkflow.objects.create(
+            session_id=session_id,
+            workflow_id=state.workflow_id,
+            current_step=str(state.current_step.value),
+            focused_item=state.focused_item,
+            focused_at=state.focused_at,
+        )
     # Check focus TTL on every load
     if state.focused_item and is_focus_expired(state):
         state.focused_item = None
@@ -58,8 +70,17 @@ def _load_state(session_id: str) -> CartSessionState:
 
 
 def _save_state(session_id: str, state: CartSessionState) -> None:
-    """Persist CartSessionState to in-process store."""
-    _store[session_id] = state
+    """Persist CartSessionState to DB."""
+    from agents.models import CartWorkflow
+    CartWorkflow.objects.update_or_create(
+        session_id=session_id,
+        defaults={
+            "workflow_id": state.workflow_id,
+            "current_step": str(state.current_step.value),
+            "focused_item": state.focused_item,
+            "focused_at": state.focused_at,
+        },
+    )
 
 
 # ── Response builders ───────────────────────────────────────────
