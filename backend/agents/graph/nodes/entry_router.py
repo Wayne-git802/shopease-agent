@@ -1,17 +1,16 @@
 """
-entry_router node — LangGraph node for two-tier intent classification.
+entry_router node — LangGraph node for fast-path intent classification.
 
 This node absorbs routing_model.py logic into the graph itself.
-It classifies user_query into one of 6 intents and returns a Command
+It classifies user_query into one of 5 intents and returns a Command
 that dynamically routes to the correct downstream node.
 
 Architecture:
   1. Fast path: Jaccard token similarity against intent descriptions
-  2. Slow fallback (LLM): when fast confidence < 0.85
+  2. Safe degrade: when fast confidence < threshold, default to "chat"
   3. Floor enforcement: confidence < 0.3 → force "chat"
 """
 
-import json
 import logging
 import re
 from typing import Optional
@@ -19,13 +18,12 @@ from typing import Optional
 from langgraph.types import Command
 
 from ..state import AgentState
-from agents.core.llm_client import get_llm_client
 
 logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────
 
-INTENTS: list[str] = ["search", "recommend", "order", "ops", "analytics", "chat"]
+INTENTS: list[str] = ["search", "recommend", "order", "analytics", "chat"]
 
 INTENT_DESCRIPTIONS: dict[str, str] = {
     "search":    "find products, search catalog, look up items, browse inventory, keyword search, "
@@ -34,8 +32,6 @@ INTENT_DESCRIPTIONS: dict[str, str] = {
                  "推荐 建议 热门 流行 趋势 相似 类似 为你 帮我选 买什么",
     "order":     "check order status, cancel order, refund, return, track shipment, order detail, purchase history, "
                  "订单 查询 取消 退款 退货 物流 跟踪 已购买 购买记录",
-    "ops":       "system health, alerts, monitoring, operational status, diagnostics, health check, dashboard, "
-                 "系统 健康 告警 监控 运维 状态 诊断 检查 仪表盘",
     "analytics": "weekly report, analytics, statistics, performance, metrics report, data summary, revenue, sales report, "
                  "报告 统计 分析 数据 营收 销售 周报 报表 指标 性能",
     "chat":      "general conversation, chitchat, help, how are you, small talk, greetings, thank you, hello, hi, "
@@ -59,10 +55,6 @@ KEYWORD_BOOST: dict[str, list[str]] = {
                   "status", "delivery", "bought", "purchase",
                   "订单", "取消", "退款", "退货", "物流", "跟踪",
                   "快递", "发货", "购买", "已买"],
-    "ops":       ["health", "alert", "monitor", "system", "metric",
-                  "status", "check", "diagnostic",
-                  "健康", "告警", "监控", "系统", "诊断",
-                  "检查", "状态", "运维"],
     "analytics": ["report", "analytics", "statistics", "revenue",
                   "sales report", "weekly", "dashboard", "metrics",
                   "performance", "data",
@@ -134,107 +126,14 @@ def _fast_classify(query: str) -> tuple[str, float]:
     return best_intent, confidence
 
 
-# ── LLM fallback ───────────────────────────────────────────────────────
-
-SYSTEM_PROMPT = (
-    "You are an intent classifier for an e-commerce assistant. "
-    "Classify the user's query into exactly one of these intents:\n\n"
-    "- search: Finding/searching for products, browsing catalog, looking up items\n"
-    "- recommend: Asking for recommendations, suggestions, personalized picks\n"
-    "- order: Order management (status, cancel, refund, return, tracking)\n"
-    "- ops: System operations, health checks, alerts, monitoring\n"
-    "- analytics: Reports, analytics, statistics, revenue, sales data, metrics\n"
-    "- chat: General conversation, chitchat, help, greetings, small talk\n\n"
-    "Respond with ONLY a JSON object:\n"
-    '{"intent": "<intent>", "confidence": <float 0-1>, "reasoning": "<brief reason>"}'
-)
-
-
-def _build_llm_prompt(query: str, history: list) -> str:
-    """Build a single prompt string for the LLM fallback."""
-    parts: list[str] = [f"System: {SYSTEM_PROMPT}"]
-
-    # Include recent history for context (last 4 turns)
-    if history:
-        for msg in history[-4:]:
-            role = getattr(msg, "role", "user")
-            content = getattr(msg, "content", "")
-            parts.append(f"{role.title()}: {content}")
-
-    parts.append(f"User: {query}")
-    parts.append("Assistant (respond with JSON only):")
-    return "\n\n".join(parts)
-
-
-def _parse_llm_response(text: str) -> dict:
-    """Extract JSON from LLM response, handling markdown fences."""
-    # Try direct JSON parse
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # Try extracting from markdown code fence
-    match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if match:
-        try:
-            return json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
-
-    # Try extracting any JSON object
-    match = re.search(r"\{[\s\S]*\}", text)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            pass
-
-    logger.warning(f"Could not parse LLM response as JSON: {text[:200]}")
-    return {"intent": "chat", "confidence": 0.3}
-
-
-def _llm_classify(query: str, history: list) -> tuple[str, float]:
-    """LLM-based classification fallback.
-
-    Returns:
-        (intent, confidence) — routing_method is always "slow" for LLM path.
-    """
-    prompt = _build_llm_prompt(query, history)
-
-    try:
-        response = get_llm_client().chat(prompt, max_tokens=200)
-        text = response.text.strip()
-        result = _parse_llm_response(text)
-
-        intent = result.get("intent", "chat")
-        confidence = float(result.get("confidence", 0.5))
-
-        # Validate intent — must be one of our known intents
-        if intent not in INTENTS:
-            logger.warning(
-                f"LLM returned unknown intent '{intent}', defaulting to 'chat'"
-            )
-            intent = "chat"
-            confidence = 0.3
-
-        confidence = min(max(confidence, 0.0), 1.0)
-        logger.info(f"LLM fallback: intent={intent}, confidence={confidence:.2f}")
-        return intent, confidence
-
-    except Exception as e:
-        logger.error(f"LLM fallback classification failed: {e}")
-        return "chat", 0.3
-
-
 # ── Entry Router Node ──────────────────────────────────────────────────
 
 def entry_router(state: AgentState) -> Command:
     """Entry router node — classifies intent and routes dynamically.
 
-    Two-tier routing:
-      1. Fast path: Jaccard token similarity (always first)
-      2. Slow fallback: LLM classification (when fast confidence < 0.85)
+    Fast-path routing with safe degrade:
+      1. Jaccard token similarity (always first)
+      2. Safe degrade: when confidence < threshold, default to "chat"
 
     Floor enforcement: if final confidence < 0.3, force "chat".
 
@@ -244,7 +143,7 @@ def entry_router(state: AgentState) -> Command:
     # State Router preset: accept intent from Layer 0
     # entry_router is an EXECUTOR — must not override state_router's decision.
     preset = state.control_context.get("preset_intent", "")
-    if preset in ("search", "recommend", "order", "ops", "analytics", "chat"):
+    if preset in ("search", "recommend", "order", "analytics", "chat"):
         return Command(
             goto=preset,
             update={
@@ -258,17 +157,17 @@ def entry_router(state: AgentState) -> Command:
 
     # ConstraintParser override
     # When orchestrator set _search_plan via ConstraintParser, use its intent
-    # directly instead of running Jaccard + LLM classification.
+    # directly instead of running Jaccard classification.
     search_plan = state.parallel_results.get("_search_plan")
     if search_plan:
         intent = search_plan.get("intent", "chat")
         # Only trust ConstraintParser for definitive intents.
         # "ambiguous" means no structured constraints detected →
-        # fall through to Jaccard/LLM classifier below.
+        # fall through to Jaccard classifier below.
         if intent != "ambiguous":
             NODE_MAP = {"sort": "search", "recommend": "recommend"}
             goto = NODE_MAP.get(intent, intent)
-            if goto not in ("search", "recommend", "chat", "order", "ops", "analytics"):
+            if goto not in ("search", "recommend", "chat", "order", "analytics"):
                 goto = "chat"
             return Command(
                 goto=goto,
@@ -324,10 +223,10 @@ def entry_router(state: AgentState) -> Command:
         confidence = fast_confidence
         method = "fast"
     else:
-        # ── Safe degrade (NO LLM fallback) ──
+        # ── Safe degrade ──
         # entry_router is an EXECUTOR, not a decision-maker.
         # state_router is the sole routing authority.
-        # Low-confidence → default to "chat" instead of calling LLM.
+        # Low-confidence → default to "chat".
         logger.info(
             "Fast router confidence %.2f < %.2f, degrading to chat",
             fast_confidence, current_threshold,

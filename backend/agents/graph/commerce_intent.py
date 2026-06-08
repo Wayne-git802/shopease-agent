@@ -14,6 +14,8 @@ Weighted signal scoring with competition penalty and additive product-noun boost
 
 from dataclasses import dataclass
 
+from .lexicon import PRODUCT_NOUNS
+
 # ════════════════════════════════════════════════════════════════════
 # Configuration
 # ════════════════════════════════════════════════════════════════════
@@ -81,17 +83,6 @@ SIGNALS: dict[str, dict[str, set[str]]] = {
 }
 
 # ════════════════════════════════════════════════════════════════════
-# Product nouns — triggers additive confidence boost
-# ════════════════════════════════════════════════════════════════════
-
-PRODUCT_NOUNS: set[str] = {
-    "耳机", "手机", "电脑", "笔记本", "键盘", "鼠标", "显示器",
-    "平板", "手表", "相机", "音箱", "鞋", "衣服", "包",
-    "headphone", "phone", "laptop", "keyboard", "mouse",
-    "monitor", "tablet", "watch", "camera", "speaker", "shoe", "bag",
-}
-
-# ════════════════════════════════════════════════════════════════════
 # Dataclass
 # ════════════════════════════════════════════════════════════════════
 
@@ -136,6 +127,9 @@ def classify(query: str) -> IntentResult:
 
     # ── 2. Zero-signal fallback ──
     if all(s == 0.0 for s in scores.values()):
+        # Bare product noun without action words → still searchable
+        if has_product_noun(query):
+            return IntentResult(intent="search", confidence=0.35, fallback="chat")
         return IntentResult(intent="search", confidence=0.0, fallback="chat")
 
     # ── 3. Determine best and second-best ──

@@ -15,6 +15,8 @@ import random
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from .lexicon import COMMERCE_SIGNAL_WORDS
+
 # ════════════════════════════════════════════════════════════════════
 # Constants
 # ════════════════════════════════════════════════════════════════════
@@ -30,14 +32,7 @@ _KEYWORDS: dict[str, set[str]] = {
                  "哈喽", "哈啰", "哈罗", "good morning", "good evening"},
     "chat": {"thanks", "谢谢", "不用了", "你是谁", "天气", "新闻", "test", "测试",
              "how are you", "what can you do", "怎么用"},
-    "commerce": {"搜索", "找", "推荐", "买", "耳机", "手机", "电脑", "订单", "退款",
-                 "物流", "取消", "发货", "价格", "送", "礼物", "送礼", "加购", "购物车",
-                 "recommend", "search", "buy", "order", "refund", "track", "cancel",
-                 # Explore / open-ended browsing
-                 "好看", "好用", "流行", "热门", "爆款", "热销", "新款", "新出",
-                 "有什么", "有没有", "值得", "划算", "推荐", "逛逛", "看看", "浏览",
-                 "建议", "性价比", "帮选", "帮我", "哪个好", "怎么样", "选哪个",
-                 "适合", "适合我", "学生党", "送女友", "送男朋友", "便宜"},
+    "commerce": COMMERCE_SIGNAL_WORDS,
 }
 
 SESSION_TTL_SECONDS: int = 1800  # 30 minutes

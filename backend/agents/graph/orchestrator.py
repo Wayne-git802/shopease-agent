@@ -28,6 +28,121 @@ class UnrecoverableError(Exception):
     """Graph failed and fallback also failed."""
 
 
+# ═══════════════════════════════════════════════════════════════
+# WorkflowAffinityRouter — block-driven conversational routing
+# ═══════════════════════════════════════════════════════════════
+#
+# Each assistant message carries UI blocks that represent "what the
+# system just did."  Those blocks are the events that drive the next
+# routing decision — no separate workflow-state variable needed.
+#
+# Priority chain:
+#   P0  explicit strong intent breaks affinity
+#   P1  newest actionable block determines workflow owner
+#   P2  fall through to L0 state_router → L1 commerce_intent
+
+MAX_AFFINITY_AGE = 300  # seconds — ignore blocks older than this
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class ActionBlock:
+    """A UI block from an assistant message — event source for routing."""
+    type: str                              # "order_created_card" | "confirm_dialog" | ...
+    data: dict = field(default_factory=dict)
+    created_at: datetime | None = None
+
+
+@dataclass
+class ConversationActionContext:
+    """Snapshot of recent assistant actions, derived from UI blocks only."""
+    active_blocks: list[ActionBlock] = field(default_factory=list)
+
+    @property
+    def workflow_phase(self) -> str | None:
+        if not self.active_blocks:
+            return None
+        t = self.active_blocks[0].type
+        if t == "order_created_card":
+            return "completed"
+        if t == "confirm_dialog":
+            return "awaiting_confirm"
+        if t in ("product_card", "cart_card"):
+            return "active"
+        return None
+
+
+# ── Affinity routing table ──
+# Block type → target agent.  First match in active_blocks (newest-first) wins.
+
+_AFFINITY_TABLE: dict[str, str] = {
+    "order_created_card": "order",
+    "confirm_dialog":     "purchase",
+    "cart_card":          "cart",
+}
+
+
+def build_action_context(session_id: str) -> ConversationActionContext:
+    """Scan last 3 assistant messages for blocks, with TTL enforcement."""
+    if not session_id:
+        return ConversationActionContext()
+
+    try:
+        from agents.models import AgentConversation
+        from django.utils import timezone
+
+        now = timezone.now()
+        msgs = (
+            AgentConversation.objects
+            .filter(session_id=session_id, role="assistant")
+            .order_by("-created_at")[:3]
+        )
+
+        blocks: list[ActionBlock] = []
+        for msg in msgs:
+            if not msg.metadata:
+                continue
+            age = (now - msg.created_at).total_seconds()
+            if age > MAX_AFFINITY_AGE:
+                continue
+
+            for b in msg.metadata.get("blocks", []):
+                blocks.append(ActionBlock(
+                    type=b.get("type", ""),
+                    data=b.get("data", {}),
+                    created_at=msg.created_at,
+                ))
+
+        return ConversationActionContext(active_blocks=blocks)
+    except Exception:
+        return ConversationActionContext()
+
+
+def route_by_affinity(ctx: ConversationActionContext, query: str) -> str | None:
+    """Return agent name if workflow affinity exists, or None to fall through.
+
+    P0 — strong intent interrupts any affinity (user changed topic).
+    P1 — newest matching block type determines workflow owner.
+    P2 — no match → return None, caller falls through to L0/L1 classify.
+    """
+    if not ctx.active_blocks:
+        return None
+
+    # P0 — explicit strong intent breaks affinity
+    from .state_router import _has_strong_intent
+    if _has_strong_intent(query):
+        return None
+
+    # P1 — first matching block in newest-first order
+    for block in ctx.active_blocks:
+        agent = _AFFINITY_TABLE.get(block.type)
+        if agent:
+            return agent
+
+    return None
+
+
 # ── Capability-Bounded Response Sanitizer ──────────────────────
 
 BANNED_PHRASES = [
@@ -254,16 +369,13 @@ def run(query: str, user_id: int | None = None,
     if display_id:
         state.parallel_results["display_id"] = display_id
 
-    # ── 1. State Router — Single Routing Authority ──
-    # Replaces Preprocessor + Input Guard. One decision point.
-    # Trivial path: template reply (0 LLM). Lightweight: chat_node only.
-    # Full graph: ConstraintParser → Memory → Graph.
-
-    # ── 0.5 Active OrderWorkflow check ──
-    # If the user is mid-order-workflow, short-circuit to OrderAgent.
-    # Handles context-dependent queries like "第一个" / "确认" / "算了"
-    # that state_router would misclassify as greeting/chat/unclear.
+    # ── 0. WorkflowAffinityRouter — context-aware routing ──
+    # Two checks (both must pass for routing to occur):
+    #   1. Active OrderWorkflow (mid-cancel/refund multi-step flow)
+    #   2. Block-based affinity (order_created → OrderAgent, etc.)
+    # If neither fires, fall through to L0 state_router → L1 commerce_intent.
     if session_id:
+        # Check 1 — Active OrderWorkflow (in-progress cancel/refund flow)
         from agents.order.workflow_store import load as load_owf
         owf = load_owf(session_id)
         if owf and owf.current_step != "idle":
@@ -275,19 +387,30 @@ def run(query: str, user_id: int | None = None,
                 result["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
                 return result
 
-        # PurchaseAgent shortcut: if last assistant msg was a purchase confirm prompt
-        from agents.purchase.agent import _get_recent_blocks
-        blocks = _get_recent_blocks(session_id, block_type="confirm_dialog")
-        for b in blocks:
-            if b.get("type") == "confirm_dialog" and b.get("data", {}).get("action") == "purchase":
+        # Check 2 — Block-based affinity routing (event-sourced)
+        ctx = build_action_context(session_id)
+        agent = route_by_affinity(ctx, query)
+        if agent:
+            # ── Dispatch to workflow owner ──
+            if agent == "order":
+                from agents.order.agent import run as run_order_agent
+                result = run_order_agent(query=query, user_id=user_id, session_id=session_id)
+            elif agent == "purchase":
                 from agents.purchase.agent import run as run_purchase_agent
                 result = run_purchase_agent(query=query, user_id=user_id, session_id=session_id)
-                if not result.get("_fallback"):
-                    result["session_id"] = session_id
-                    result["query_type"] = query_type
-                    result["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
-                    return result
-                break
+            elif agent == "cart":
+                from agents.cart.agent import run as run_cart_agent
+                did = state.parallel_results.get("display_id", "")
+                result = run_cart_agent(query=query, user_id=user_id, session_id=session_id,
+                                        display_id=did)
+            else:
+                result = None
+
+            if result and not result.get("_fallback"):
+                result["session_id"] = session_id
+                result["query_type"] = query_type
+                result["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
+                return result
 
     from .state_router import route as state_router, _pick_template, RouteDecision, _has_strong_intent
 
@@ -332,6 +455,47 @@ def run(query: str, user_id: int | None = None,
             state.parallel_results["_intent_score"] = intent_score.to_dict()
             # Mutate commerce_result so FinalDecision sees corrected confidence
             commerce_result.confidence = intent_score.adjusted_confidence
+
+    # ── 2.0 QueryGrounder — executability gate ──
+    # After L1 commerce_intent: check whether this search/recommend query
+    # can actually be mapped to a finite product space.
+    # NEEDS_CATEGORY → clarify.  READY/NEEDS_REFINEMENT → proceed.
+    if commerce_result and commerce_result.intent in ("search", "recommend", "explore"):
+        from .grounding import ground, plan, build_clarify_reply, MAX_CLARIFY_DEPTH
+
+        # Skip grounding when user is interacting with displayed results
+        # (recent product_card + no new product anchor in query).
+        # "第一个看看" with cards → skip.  "推荐键盘" with cards → ground.
+        slots = ground(query)
+        skip_grounder = False
+        if session_id:
+            ctx = build_action_context(session_id)
+            has_cards = any(b.type == "product_card" for b in ctx.active_blocks)
+            has_new_anchor = bool(slots.get("category"))
+            skip_grounder = has_cards and not has_new_anchor
+
+        if skip_grounder:
+            pass  # fall through to normal routing
+        else:
+            clarify_depth = getattr(conv_state.dialogue, '_clarify_depth', 0) if conv_state else 0
+            gr = plan(slots, depth=clarify_depth)
+
+            if gr.state == "needs_category":
+                reply = build_clarify_reply(gr.missing_slot or "category")
+                reply["session_id"] = session_id
+                reply["query_type"] = query_type
+                reply["runtime"] = {"total_ms": int((_time.time() - _start) * 1000)}
+                if session_id:
+                    cs = conv_state or ConversationState(
+                        session_id=session_id,
+                        original_query=query,
+                        pending_question=reply["reply"],
+                    )
+                    cs.dialogue.last_user_query = query
+                    cs.dialogue.expects_followup = True
+                    cs.dialogue._clarify_depth = clarify_depth + 1
+                    put_conv_state(cs)
+                return reply
 
     # ── L2: FinalDecision — single truth source ──
     # Unifies L0 (route) + L1 (commerce_result) + ConversationSignals.

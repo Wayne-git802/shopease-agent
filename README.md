@@ -97,7 +97,7 @@ The entry_router is an **executor**, not a decision-maker. It runs deterministic
 
 ## Features
 
-- **Multi-agent architecture** — 8-node LangGraph StateGraph: entry_router, search, recommend, merge, order, analytics, chat, response
+- **Multi-agent architecture** — 7-node LangGraph StateGraph: entry_router, search, recommend, merge, order, analytics, chat, response
 - **Dual-path retrieval** — search (SQL + FAISS hybrid) and recommend (CF) execute in parallel, unified by policy-aware merge
 - **Deterministic pathways** — order node runs with zero LLM calls; entry_router degrades safely without LLM escalation
 - **Multi-role system** — Admin, Seller, and Customer with granular permissions
@@ -148,8 +148,8 @@ All source code is mounted into containers with hot-reload enabled:
 │   │   ├── graph/          # StateGraph definition + nodes
 │   │   │   ├── graph_builder.py   # Compiled graph singleton
 │   │   │   ├── state.py           # AgentState (SSOT)
-│   │   │   ├── nodes/             # 9 graph nodes
-│   │   │   │   ├── entry_router.py  # 368 lines — two-tier classifier
+│   │   │   ├── nodes/             # 8 graph nodes
+│   │   │   │   ├── entry_router.py  # two-tier classifier
 │   │   │   │   ├── search_node.py   # 311 lines — hybrid retrieval
 │   │   │   │   ├── recommend_node.py # 277 lines — CF engine
 │   │   │   │   ├── merge_node.py    # 404 lines — policy reranker

@@ -21,7 +21,6 @@ NODE_TO_PHASE = {
     "response_node":  "explaining",
     "analytics_node": "analyzing",
     "order_node":     "processing",
-    "ops_node":       "checking",
     "chat_node":      "responding",
     "fallback_node":  "responding",
 }
@@ -34,7 +33,6 @@ PHASE_LABELS = {
     "explaining":    "生成推荐理由",
     "analyzing":     "分析数据",
     "processing":    "处理订单",
-    "checking":      "检查系统",
     "responding":    "生成回复",
 }
 

@@ -4,7 +4,7 @@
 {% block title %}AI Workspace — ShopEase{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/ai.css' %}?v=20260528a">
+<link rel="stylesheet" href="{% static 'css/ai.css' %}?v=20260528c">
 {% endblock %}
 
 {% block content %}
@@ -253,9 +253,11 @@ function renderConversation() {
     container.querySelectorAll('.chat-message').forEach(el => el.remove());
 
     if (msgs.length === 0) {
+        container.classList.remove('chat-container');
         empty.classList.remove('hidden');
         return;
     }
+    container.classList.add('chat-container');
     empty.classList.add('hidden');
     msgs.forEach(msg => {
         const el = renderMessage(msg);
@@ -274,7 +276,7 @@ function renderMessage(msg) {
     row.appendChild(avatar);
 
     const wrapper = document.createElement('div');
-    wrapper.style.maxWidth = msg.role === 'user' ? '75%' : '85%';
+    wrapper.className = 'chat-bubble-wrapper';
 
     const bubble = document.createElement('div');
     bubble.className = 'chat-bubble';
@@ -317,10 +319,9 @@ async function submitWorkspace() {
     const HARDCODED = {
         '你能做什么呢': `您好！我是 ShopEase 的 AI 购物助手，可以帮您：
 
-<b>搜索与推荐商品</b> — 根据您的需求，快速找到合适的商品。
-<b>查询订单状态</b> — 查看物流、配送进度。
-<b>处理售后</b> — 协助您发起退款或取消订单（需您明确确认）。
-<b>解答平台问题</b> — 如活动规则、优惠券使用等。
+**搜索与推荐商品** — 根据需求找到合适商品，支持关键词搜索和个性化推荐。
+**加入购物车与下单** — 将商品加入购物车，完成下单购买。
+**查询与管理订单** — 查看物流、配送进度，发起取消或退款（需您确认）。
 
 请直接告诉我需要什么帮助！`
     };

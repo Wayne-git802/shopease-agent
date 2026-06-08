@@ -6,7 +6,6 @@ Nodes:
                             ├─"search"    → search    → merge → response → END
                             ├─"recommend" → recommend → merge → response → END
                             ├─"order"     → order     → chat  → response → END
-                            ├─"ops"       → ops       → chat  → response → END
                             ├─"analytics" → analytics → response → END
                             └─"chat"      → chat      → response → END
 
@@ -25,7 +24,6 @@ from .nodes.merge_node import merge_node
 from .nodes.search_node import search_node
 from .nodes.recommend_node import recommend_node
 from .nodes.order_node import order_node
-from .nodes.ops_node import ops_node
 from .nodes.analytics_node import analytics_node
 
 
@@ -41,7 +39,6 @@ def build_graph() -> StateGraph:
     graph.add_node("search", search_node)
     graph.add_node("recommend", recommend_node)
     graph.add_node("order", order_node)
-    graph.add_node("ops", ops_node)
     graph.add_node("analytics", analytics_node)
 
     # ── Entry point ──
@@ -55,7 +52,6 @@ def build_graph() -> StateGraph:
             "search": "search",
             "recommend": "recommend",
             "order": "order",
-            "ops": "ops",
             "analytics": "analytics",
             "chat": "chat",
         },
@@ -72,7 +68,6 @@ def build_graph() -> StateGraph:
 
     # ── Simple passthrough nodes → chat → response ──
     graph.add_edge("order", "chat")
-    graph.add_edge("ops", "chat")
 
     # ── Analytics → response ──
     graph.add_edge("analytics", "response")
