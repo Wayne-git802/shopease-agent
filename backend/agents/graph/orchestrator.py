@@ -513,8 +513,17 @@ def run(query: str, user_id: int | None = None,
 
     # ── 2.6 PurchaseAgent routing ──
     if commerce_result and commerce_result.intent == "purchase" and commerce_result.confidence >= 0.3:
-        from agents.purchase.agent import run as run_purchase_agent
-        result = run_purchase_agent(query=query, user_id=user_id, session_id=session_id)
+        from agents.purchase.agent import run as run_purchase_agent, handle_confirm
+        from agents.purchase.workflow_store import load as load_purchase_wf
+        from agents.purchase.state_machine import PurchaseStep
+
+        # Check for active confirmation workflow
+        wf = load_purchase_wf(session_id) if session_id else None
+        if wf and wf.current_step == PurchaseStep.CONFIRMING:
+            result = handle_confirm(query=query, user_id=user_id, session_id=session_id)
+        else:
+            result = run_purchase_agent(query=query, user_id=user_id, session_id=session_id, display_id=display_id)
+
         if not result.get("_fallback"):
             result["session_id"] = session_id
             result["query_type"] = query_type
