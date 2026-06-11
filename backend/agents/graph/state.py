@@ -5,7 +5,7 @@ Every node reads/writes ONLY this state. No hidden coupling.
 """
 from datetime import datetime
 from typing import Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ── Sub-types ─────────────────────────────────────────────────────
@@ -25,10 +25,21 @@ class ProductRef(BaseModel):
 
 
 class DocRef(BaseModel):
-    id: str
+    model_config = {"populate_by_name": True, "extra": "ignore"}
+    id: str = Field(alias="doc_id")
     content: str
     source: str = ""
     relevance: float = 0.0
+    
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_input(cls, data: Any) -> Any:
+        """Convert doc_id → id for backward compatibility with serialized state."""
+        if isinstance(data, dict):
+            if "doc_id" in data and "id" not in data:
+                data = dict(data)
+                data["id"] = data.pop("doc_id")
+        return data
 
 
 class RankedItem(BaseModel):

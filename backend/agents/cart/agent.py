@@ -217,16 +217,13 @@ def _extract_quantity(query: str) -> int | None:
 
 # ── Main entry point ────────────────────────────────────────────
 
-def run(
+def _run(
     query: str,
     user_id: int | None = None,
     session_id: str = "",
     display_id: str = "",
 ) -> dict:
-    """Main entry point. Handles ONE turn of cart conversation.
-
-    Pipeline: parse→resolve→execute→respond.
-    """
+    """Internal implementation.  External callers use CartAgent.execute()."""
 
     # ── Step 1: Auth gate ──────────────────────────────────
     if not user_id:
@@ -347,7 +344,14 @@ def run(
             return build_error("购物车是空的")
 
         # b. Handoff to orchestrator → PurchaseAgent
+        # Carry items so execute() can persist them to SharedView
         final = build_handoff()
+        final["blocks"] = [
+            {"type": "cart_item", "data": {
+                "product_id": it.get("product_id"), "name": it.get("name", ""),
+                "price": float(it.get("price", 0)), "quantity": int(it.get("quantity", 1)),
+            }} for it in items
+        ]
 
     # ── DECLINE ──
     elif intent == CartIntent.DECLINE:
@@ -367,3 +371,60 @@ def run(
     final["session_id"] = session_id
     final["agent_type"] = "cart"
     return final
+
+
+# ═══════════════════════════════════════════════════════════════
+# AgentExecutor interface (Phase 4)
+# ═══════════════════════════════════════════════════════════════
+
+from agents.graph.pipeline import AgentResult, AgentCapability, Handoff, PipelineContext, AgentContext
+
+
+def _extract_cart_items(result: dict) -> list[dict]:
+    """Extract cart items from _run() result for SharedView snapshot.
+
+    Cart blocks use type "cart_item" with item data inline.
+    """
+    items = []
+    for block in result.get("blocks", []):
+        if block.get("type") in ("cart_item", "cart_card"):
+            item = block.get("data", {})
+            items.append({
+                "product_id": item.get("product_id", item.get("id", 0)),
+                "name": item.get("name", ""),
+                "price": float(item.get("price", 0)),
+                "quantity": int(item.get("quantity", 1)),
+            })
+    return items
+
+
+class CartAgent:
+    """Cart management agent — implements AgentExecutor protocol."""
+
+    capability = AgentCapability.CART
+    priority = 10
+
+    def can_handle(self, ctx: PipelineContext) -> bool:
+        commerce = ctx.commerce_result
+        return bool(commerce and commerce.intent == "cart" and commerce.confidence >= 0.3)
+
+    def execute(self, ctx: AgentContext) -> AgentResult:
+        result = _run(ctx.query, ctx.user_id, ctx.session_id, ctx.display_id)
+
+        # Handoff to Purchase — explicit condition
+        if result.get("_handoff") == "purchase" or result.get("status") == "handoff":
+            # Share cart snapshot with PurchaseAgent via SharedView
+            items = _extract_cart_items(result)
+            ctx.memory.set_shared_view(ctx.session_id, cart_snapshot=items)
+            return AgentResult(
+                status="handoff",
+                handoff=Handoff(target=AgentCapability.PURCHASE,
+                                payload={"session_id": ctx.session_id}),
+            )
+
+        if result.get("_fallback"):
+            return AgentResult(status="fallback")
+        return AgentResult(status="success", response=result)
+
+
+cart_agent = CartAgent()

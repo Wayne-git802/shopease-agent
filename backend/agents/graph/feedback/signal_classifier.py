@@ -5,6 +5,9 @@ This is the entry point of the Signal Standardization Layer (B-0).
 Every raw user behavior event passes through here before flowing to
 any downstream consumer (ranking, memory, routing).
 """
+import logging
+
+logger = logging.getLogger(__name__)
 
 from __future__ import annotations
 from typing import Optional
@@ -72,7 +75,6 @@ def classify_and_create(
             metadata=event.get("metadata", {}),
         )
     except Exception:
-        # Signal persistence is non-critical — don't break the request
-        pass
+        logger.warning("StandardizedSignal persist failed (non-critical)", exc_info=True)
 
     return signal_type, weight

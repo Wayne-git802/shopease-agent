@@ -11,6 +11,9 @@ from ..contracts import ChatNodeInput, ChatNodeOutput
 from ..cost_router import CostRouter, estimate_tokens
 
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def chat_node(state: AgentState) -> AgentState:
@@ -27,6 +30,31 @@ def chat_node(state: AgentState) -> AgentState:
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
     ]
+
+    # Knowledge RAG injection — search docs for relevant policy/FAQ
+    try:
+        from ..rag.knowledge_store import get_knowledge_store
+        ks = get_knowledge_store()
+        docs = ks.search(state.user_query, top_k=2)
+        if docs:
+            knowledge_context = "\n\n".join([
+                f"[来源: {d['metadata']['source']} - {d['metadata'].get('section', '')}]\n{d['content']}"
+                for d in docs
+            ])
+            messages.insert(1, {"role": "system",
+                "content": f"以下是与用户问题相关的平台政策文档，请基于这些信息回答。如果文档中没有相关信息，请如实说明。\n\n{knowledge_context}"})
+    except Exception:
+        logger.warning("Knowledge RAG injection failed, continuing without docs", exc_info=True)
+
+    # Product RAG injection — inject retrieved product specs for comparison
+    if state.retrieved_docs:
+        product_context = "\n".join([
+            f"商品{d.id}: {d.content}"
+            for d in state.retrieved_docs[:5]
+        ])
+        messages.insert(1, {"role": "system",
+            "content": f"以下是与用户搜索相关的商品信息，请基于这些数据回答，引用具体参数进行对比。\n\n{product_context}"})
+
     for h in state.history[-10:]:   # last 10 turns
         messages.append({"role": h.role, "content": h.content})
     messages.append({"role": "user", "content": state.user_query})

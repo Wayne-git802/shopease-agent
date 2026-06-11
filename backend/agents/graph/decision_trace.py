@@ -17,7 +17,11 @@ Schema is designed to be persisted as JSON in SessionTrace.decision_trace.
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from typing import Optional, Literal
 
@@ -200,7 +204,7 @@ def snapshot_signals(user_id: int | None = None, window_days: int = 90) -> Signa
             created_at__gte=cutoff,
         ).count()
     except Exception:
-        pass
+        logger.warning("Signal snapshot failed", exc_info=True)
 
     return SignalSnapshot(
         total_signals=total,

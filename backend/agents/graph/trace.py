@@ -89,12 +89,17 @@ class RuntimeTrace:
 
 # ── persist_trace (unchanged) ────────────────────────────────────
 
+def _ensure_django():
+    import django
+    django.setup()
+
+
 def persist_trace(traces: list[NodeTrace]) -> None:
     """Write all NodeTrace entries to AgentLog table."""
     if not traces:
         return
 
-    import django; django.setup()
+    _ensure_django()
     from agents.models import AgentLog
     import uuid
 

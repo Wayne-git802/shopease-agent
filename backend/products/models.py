@@ -168,6 +168,14 @@ class Product(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
+    # ── Product specs (RAG — high-frequency fields for direct SQL filtering) ──
+    battery_life = models.IntegerField(null=True, blank=True, verbose_name='续航(小时)')
+    bluetooth_version = models.CharField(max_length=10, null=True, blank=True, verbose_name='蓝牙版本')
+    noise_cancellation = models.BooleanField(default=False, verbose_name='主动降噪')
+    weight = models.IntegerField(null=True, blank=True, verbose_name='重量(g)')
+    # Extended specs — JSON catch-all for low-frequency attributes
+    specs = models.JSONField(default=dict, blank=True, verbose_name='扩展规格')
+
     @property
     def stock(self):
         """从 Inventory 表读取库存"""

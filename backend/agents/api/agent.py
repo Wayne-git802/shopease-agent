@@ -194,14 +194,14 @@ class CustomerServiceAgent(BaseAgent):
             for up in UserPreference.objects.filter(user_id=user_id):
                 prefs[up.key] = up.value
         except Exception:
-            pass
+            logger.warning("UserPreference load failed for user=%s", user_id, exc_info=True)
 
         # Long-term: MemoryBridge (cross-session persistence)
         try:
             bridge_prefs = self._memory.get_user_preferences(user_id)
             prefs.update(bridge_prefs)
         except Exception:
-            pass
+            logger.warning("MemoryBridge preference load failed for user=%s", user_id, exc_info=True)
 
         return prefs
 
@@ -238,7 +238,7 @@ class CustomerServiceAgent(BaseAgent):
                         source_agent=self.agent_type, confidence=0.6,
                     )
                 except Exception:
-                    pass
+                    logger.warning("StandardizedSignal persist failed for session=%s", session_id, exc_info=True)
 
     # ── conversation management ─────────────────────────────────
 

@@ -29,13 +29,13 @@ from .response import build_confirm, build_success, build_error, build_decline
 logger = logging.getLogger(__name__)
 
 
-def run(
+def _run(
     query: str,
     user_id: int | None = None,
     session_id: str = "",
     display_id: str = "",
 ) -> dict:
-    """Main entry point. Handles ONE turn of purchase conversation."""
+    """Internal implementation.  External callers use PurchaseAgent.execute()."""
 
     # 1. Auth gate
     if not user_id:
@@ -151,3 +151,51 @@ def handle_confirm(
         product["name"],
         product["price"],
     )
+
+
+# ═══════════════════════════════════════════════════════════════
+# AgentExecutor interface (Phase 4)
+# ═══════════════════════════════════════════════════════════════
+
+from agents.graph.pipeline import AgentResult, AgentCapability, Handoff, PipelineContext, AgentContext
+
+
+class PurchaseAgent:
+    """Purchase flow agent — implements AgentExecutor protocol.
+
+    Owns the confirm-or-run decision that was previously in the executor wrapper.
+    Reads SharedView for cart_snapshot when entering from CartAgent handoff.
+    """
+
+    capability = AgentCapability.PURCHASE
+    priority = 10
+
+    def can_handle(self, ctx: PipelineContext) -> bool:
+        commerce = ctx.commerce_result
+        return bool(commerce and commerce.intent == "purchase" and commerce.confidence >= 0.3)
+
+    def execute(self, ctx: AgentContext) -> AgentResult:
+        from .workflow_store import load as load_wf
+        from .state_machine import PurchaseStep
+
+        # Active confirmation workflow → handle_confirm
+        wf = load_wf(ctx.session_id) if ctx.session_id else None
+        if wf and wf.current_step == PurchaseStep.CONFIRMING:
+            result = handle_confirm(query=ctx.query, user_id=ctx.user_id, session_id=ctx.session_id)
+        else:
+            # Read shared view for cart snapshot (from CartAgent handoff)
+            view = ctx.memory.get_shared_view(ctx.session_id)
+            # Inject cart snapshot into result so display layer can show it
+            result = _run(
+                query=ctx.query, user_id=ctx.user_id,
+                session_id=ctx.session_id, display_id=ctx.display_id,
+            )
+            if view.cart_snapshot and not result.get("_fallback"):
+                result.setdefault("cart_snapshot", view.cart_snapshot)
+
+        if result.get("_fallback"):
+            return AgentResult(status="fallback")
+        return AgentResult(status="success", response=result)
+
+
+purchase_agent = PurchaseAgent()

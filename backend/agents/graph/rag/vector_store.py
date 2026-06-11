@@ -77,20 +77,29 @@ class VectorStore:
         return False
 
     def save(self, path: str | None = None) -> None:
-        """Public save. Uses default data/ path if none given."""
+        """Public save. Saves index + id_map alongside."""
+        if self.index is None:
+            return
         if path is not None:
-            # Custom path — write index only (backward compat)
-            if self.index is not None:
-                faiss.write_index(self.index, path)
+            faiss.write_index(self.index, path)
+            # Save id_map alongside
+            id_path = path + ".idmap"
+            with open(id_path, "w", encoding="utf-8") as f:
+                json.dump(self.id_map, f)
         else:
             self._save()
 
     def load(self, path: str | None = None) -> bool:
-        """Public load. Uses default data/ path if none given."""
+        """Public load. Loads index + id_map."""
         if path is not None:
             if not os.path.exists(path):
                 return False
             self.index = faiss.read_index(path)
+            # Load id_map
+            id_path = path + ".idmap"
+            if os.path.exists(id_path):
+                with open(id_path, "r", encoding="utf-8") as f:
+                    self.id_map = json.load(f)
             return True
         return self._load()
 

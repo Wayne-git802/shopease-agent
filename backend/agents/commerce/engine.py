@@ -157,7 +157,7 @@ class RecommendEngine:
                 )
                 user_category_ids = {cid for cid in reviewed_cats if cid is not None}
             except Exception:
-                pass
+                logger.warning("User-based recommendation failed, continuing without", exc_info=True)
 
             results: list[dict] = []
             seen_ids: set[int] = set()

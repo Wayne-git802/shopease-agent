@@ -354,3 +354,49 @@ class PurchaseWorkflow(models.Model):
 
     def __str__(self):
         return f"[{self.workflow_id[:8]}] step={self.current_step}"
+
+
+# ── SessionState — persistent session-scoped state ──────────────
+
+class SessionState(models.Model):
+    """DB-backed session state for multi-turn clarification conversations.
+
+    Replaces the old in-process dict store.  Survives process restarts
+    and works across multiple workers.  Expired rows are lazily cleaned
+    on read and can be batch-deleted via cleanup_expired().
+    """
+
+    session_id = models.CharField(max_length=64, primary_key=True)
+
+    # SessionMemory fields
+    pending_intent = models.CharField(max_length=32, default="")
+    collected_slots = models.JSONField(default=dict)
+    missing_slots = models.JSONField(default=list)
+
+    # ConversationState fields
+    last_intent = models.CharField(max_length=32, default="")
+    pending_action_type = models.CharField(max_length=32, default="")
+    pending_question = models.TextField(default="")
+    pending_options = models.JSONField(default=dict)
+    original_query = models.TextField(default="")
+    context_summary = models.TextField(default="")
+
+    # DialogueContext fields (flattened)
+    injected_slot = models.TextField(default="")
+    last_user_query = models.TextField(default="")
+    expects_followup = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    # Phase 6: cross-agent shared context (current_product, cart_snapshot)
+    shared_view = models.JSONField(default=dict)
+
+    class Meta:
+        db_table = "agent_session_state"
+        indexes = [
+            models.Index(fields=["expires_at"]),
+        ]
+
+    def __str__(self):
+        return f"SessionState({self.session_id})"

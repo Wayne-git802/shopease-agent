@@ -7,6 +7,9 @@ I/O Contract:
   side_effect: delegates ranking to RecommendEngine; no LLM calls.
 """
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 from ..state import AgentState, RankedItem, NodeTrace
 from ..contracts import RecommendNodeInput, RecommendNodeOutput
@@ -46,7 +49,7 @@ def _hydrate_slots_from_resolved_params(state: AgentState, collected_slots: dict
             state.parallel_results["budget_lo"] = lo
             state.parallel_results["budget_hi"] = hi
         except Exception:
-            pass  # graceful degradation
+            logger.warning("Budget extraction failed, continuing without budget filter", exc_info=True)
 
     return slots
 
@@ -142,7 +145,7 @@ def recommend_node(state: AgentState) -> AgentState:
             state.parallel_results["budget_lo"] = lo
             state.parallel_results["budget_hi"] = hi
         except Exception:
-            pass
+            logger.warning("Budget extraction failed in _re_rank_by_budget", exc_info=True)
 
     engine = RecommendEngine()
 

@@ -1,4 +1,7 @@
-"""BaseAgent — abstract base class for all agents.
+"""BaseAgent — abstract base class for streaming/tools agents.
+
+@deprecated for pipeline agents — use agents.graph.pipeline.AgentExecutor.
+Still used by: CustomerServiceAgent, MetaAgent, RecommendAgent, OpsAgent.
 
 Every agent in the system inherits from this class.  It provides:
   - LLM client injection (Mock or DeepSeek — agent doesn't care)
@@ -16,7 +19,8 @@ from .agent_logger import AgentLogger
 
 @dataclass
 class AgentContext:
-    """Context passed into every agent.process() call."""
+    """Legacy — only for BaseAgent subclasses.  Pipeline agents use
+    agents.graph.pipeline.AgentContext instead."""
     user_id: Optional[int] = None
     session_id: str = ""
     trace_id: str = ""

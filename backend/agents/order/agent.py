@@ -29,12 +29,8 @@ from .workflow_store import load as load_workflow, save as save_workflow, delete
 logger = logging.getLogger(__name__)
 
 
-def run(query: str, user_id: int | None = None, session_id: str = "") -> dict:
-    """
-    Main entry point. Handles ONE turn of order conversation.
-
-    Returns a dict compatible with the existing orchestrator response format.
-    """
+def _run(query: str, user_id: int | None = None, session_id: str = "") -> dict:
+    """Internal implementation.  External callers use OrderAgent.execute()."""
     # Default response
     if not user_id:
         return build_error("需要登录才能查询订单").to_dict()
@@ -218,6 +214,33 @@ def run(query: str, user_id: int | None = None, session_id: str = "") -> dict:
     result["session_id"] = session_id
     result["agent_type"] = "order"
     return result
+
+
+# ═══════════════════════════════════════════════════════════════
+# AgentExecutor interface (Phase 4)
+# ═══════════════════════════════════════════════════════════════
+
+from agents.graph.pipeline import AgentResult, AgentCapability, Handoff, PipelineContext, AgentContext
+
+
+class OrderAgent:
+    """Order lifecycle agent — implements AgentExecutor protocol."""
+
+    capability = AgentCapability.ORDER
+    priority = 10
+
+    def can_handle(self, ctx: PipelineContext) -> bool:
+        commerce = ctx.commerce_result
+        return bool(commerce and commerce.intent == "order")
+
+    def execute(self, ctx: AgentContext) -> AgentResult:
+        result = _run(ctx.query, ctx.user_id, ctx.session_id)
+        if result.get("_fallback"):
+            return AgentResult(status="fallback")
+        return AgentResult(status="success", response=result)
+
+
+order_agent = OrderAgent()
 
 
 def _intent_to_step(intent: str) -> OrderStep | None:

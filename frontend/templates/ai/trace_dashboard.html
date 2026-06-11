@@ -387,6 +387,57 @@
         border-color: var(--accent-pink);
     }
 
+    /* ── RAG Health Card ── */
+    .rag-health-card {
+        background: var(--bg-card);
+        border-radius: 12px;
+        padding: 1.2rem 1.5rem;
+        margin-bottom: 1.5rem;
+        border: 1px solid var(--border-color);
+    }
+    .rag-health-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        margin-bottom: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .rag-metrics {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+    }
+    .rag-metric {
+        flex: 1;
+        min-width: 160px;
+    }
+    .rag-label {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        margin-bottom: 0.2rem;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    .rag-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+    }
+    .rag-value.green  { color: var(--green); }
+    .rag-value.yellow { color: var(--yellow); }
+    .rag-value.red    { color: var(--red); }
+    .rag-sub {
+        font-size: 0.7rem;
+        font-weight: 400;
+        color: var(--text-muted);
+        margin-left: 0.3rem;
+    }
+    .rag-detail {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        margin-top: 0.1rem;
+    }
+
     /* ── Scrollbar ── */
     .table-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
     .table-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -413,6 +464,33 @@
 
     <!-- KPI Row -->
     <div class="kpi-row" id="kpiRow"></div>
+
+    <!-- RAG Health Card -->
+    <div class="rag-health-card">
+        <div class="rag-health-title">🔍 RAG Health</div>
+        <div class="rag-metrics">
+            <div class="rag-metric">
+                <div class="rag-label">Knowledge RAG</div>
+                <div class="rag-value green">95.0% <span class="rag-sub">source accuracy</span></div>
+                <div class="rag-detail">MRR 0.867 · 19/20 queries</div>
+            </div>
+            <div class="rag-metric">
+                <div class="rag-label">Product RAG</div>
+                <div class="rag-value yellow">36.5% <span class="rag-sub">recall@3</span></div>
+                <div class="rag-detail">MRR 0.656 · hit_rate 78.1% · 32 queries</div>
+            </div>
+            <div class="rag-metric">
+                <div class="rag-label">Structured Retrieval</div>
+                <div class="rag-value green">L0 SQL</div>
+                <div class="rag-detail">Order/Cart/History direct lookup</div>
+            </div>
+            <div class="rag-metric">
+                <div class="rag-label">Index Status</div>
+                <div class="rag-value" style="color:var(--text-primary);font-size:1.2rem;">41 products</div>
+                <div class="rag-detail">Chinese · 7 categories · FAISS</div>
+            </div>
+        </div>
+    </div>
 
     <!-- Error Banner (hidden by default) -->
     <div class="error-banner" id="errorBanner" style="display:none;"></div>

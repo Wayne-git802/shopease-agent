@@ -6,10 +6,13 @@ Features:
 - update(state) → persist preference events with decay
 - MemoryDecay: exponential decay τ=90 days
 """
+import logging
 import math
 from datetime import datetime
 
 from .state import AgentState, UserMemory, PurchaseSummary, BehavioralProfile
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryDecay:
@@ -59,6 +62,7 @@ def load_preferences(user_id: int) -> dict:
                 preferences[key] = top_weight
         return preferences
     except Exception:
+        logger.warning("Preference load failed for user=%s", user_id, exc_info=True)
         return {}
 
 

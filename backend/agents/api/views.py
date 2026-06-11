@@ -134,7 +134,7 @@ def ai_entry(request):
                 content=query,
             )
         except Exception:
-            pass
+            logger.warning("User message persist failed for session=%s", session_id, exc_info=True)
 
     assistant_reply = ''
     assistant_blocks = []
@@ -170,8 +170,7 @@ def ai_entry(request):
                     cs.title = query[:50]
                     cs.save(update_fields=['title'])
             except Exception:
-                pass
-
+                logger.warning("Conversation title update failed for session=%s", session_id, exc_info=True)
             # ── Record last purchase context (for cross-refresh retrieval) ──
             if result.get('agent_type') == 'purchase':
                 try:
@@ -190,8 +189,7 @@ def ai_entry(request):
                             'created_at': timezone.now().isoformat(),
                         })
                 except Exception:
-                    pass
-
+                    logger.warning("Tool call metadata append failed for session=%s", session_id, exc_info=True)
     return Response({
         'ui_state': result.get('ui_state', 'done'),
         'message': result.get('message', ''),
@@ -256,14 +254,14 @@ def eval_track(request):
                 user_id=request.user.id if request.user.is_authenticated else None,
             )
         except Exception:
-            pass  # signal persistence is non-critical
+            logger.warning("Signal classification persist failed for session=%s", session_id, exc_info=True)
 
         # Phase B-3: feed outcome back to routing tuner
         try:
             from agents.graph.routing.tuner import update_outcome
             update_outcome(session_id, outcome_type or event_type)
         except Exception:
-            pass
+            logger.warning("Routing tuner update_outcome failed for session=%s", session_id, exc_info=True)
 
         return Response({'status': 'ok'}, status=status.HTTP_201_CREATED)
     except Exception as e:
@@ -288,7 +286,7 @@ def feedback(request):
             popularity_score=models.F('popularity_score') + 1
         )
     except Exception:
-        pass
+        logger.warning("Semantic cache popularity update failed for hash=%s", content_hash[:16] if content_hash else 'unknown', exc_info=True)
 
     return Response({'status': 'ok'}, status=status.HTTP_200_OK)
 

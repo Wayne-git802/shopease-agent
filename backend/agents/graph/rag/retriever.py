@@ -11,6 +11,12 @@ from .embedder import embed, embed_batch
 from .vector_store import get_store
 
 
+def _ensure_django():
+    """Lazy Django setup — call once, idempotent."""
+    import django
+    django.setup()
+
+
 class Retriever(RetrieverProtocol):
     """Hybrid retriever: FAISS + MySQL LIKE → RRF fusion."""
 
@@ -64,8 +70,7 @@ class Retriever(RetrieverProtocol):
 
     def _build_index_from_db(self) -> None:
         """Auto-build FAISS index from active products in DB."""
-        import django
-        django.setup()
+        _ensure_django()
         from products.models import Product
 
         products = Product.objects.filter(is_active=True).values_list('id', 'name', 'description')
@@ -77,8 +82,7 @@ class Retriever(RetrieverProtocol):
 
     def _keyword_search(self, query: str, limit: int = 30) -> list[tuple[int, float]]:
         """MySQL LIKE on product name/description. Returns [(product_id, score), ...]"""
-        import django
-        django.setup()
+        _ensure_django()
         from products.models import Product
         from django.db.models import Q
 
@@ -107,13 +111,12 @@ class Retriever(RetrieverProtocol):
                   kw: list[tuple[int, float]],
                   top_k: int) -> list[tuple[int, float]]:
         """Reciprocal Rank Fusion: rrf_score = Σ 1/(k + rank)"""
-        RRF_K = 60
         scores: dict[int, float] = {}
 
         for rank, (pid, _) in enumerate(vec):
-            scores[pid] = scores.get(pid, 0.0) + 1.0 / (RRF_K + rank + 1)
+            scores[pid] = scores.get(pid, 0.0) + 1.0 / (Retriever.RRF_K + rank + 1)
         for rank, (pid, _) in enumerate(kw):
-            scores[pid] = scores.get(pid, 0.0) + 1.0 / (RRF_K + rank + 1)
+            scores[pid] = scores.get(pid, 0.0) + 1.0 / (Retriever.RRF_K + rank + 1)
 
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         return ranked[:top_k]
@@ -124,8 +127,7 @@ class Retriever(RetrieverProtocol):
         if not fused:
             return []
 
-        import django
-        django.setup()
+        _ensure_django()
         from products.models import Product
 
         score_map = dict(fused)

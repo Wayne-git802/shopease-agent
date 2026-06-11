@@ -1,19 +1,19 @@
 """
-entry_router node — LangGraph node for fast-path intent classification.
+entry_router node — LangGraph dispatcher + execution-context reference resolution.
 
-This node absorbs routing_model.py logic into the graph itself.
-It classifies user_query into one of 5 intents and returns a Command
-that dynamically routes to the correct downstream node.
+Dispatch priority:
+  0. Reference resolution — resolve "第一个"/"第二个" BEFORE dispatch
+  1. Preset intent from state_router
+  2. ConstraintParser override (search_plan intent)
+  3. Session memory (follow-up answer to clarify question)
+  4. Default → "chat"
 
-Architecture:
-  1. Fast path: Jaccard token similarity against intent descriptions
-  2. Safe degrade: when fast confidence < threshold, default to "chat"
-  3. Floor enforcement: confidence < 0.3 → force "chat"
+Phase 6 fix: reference resolution runs FIRST, before any dispatch path.
+If resolved, preset_intent is set to the last known intent so downstream
+nodes receive the right routing context.
 """
 
 import logging
-import re
-from typing import Optional
 
 from langgraph.types import Command
 
@@ -21,247 +21,143 @@ from ..state import AgentState
 
 logger = logging.getLogger(__name__)
 
-# ── Constants ──────────────────────────────────────────────────────────
+_CONSTRAINT_NODE_MAP: dict[str, str] = {"sort": "search", "recommend": "recommend"}
+VALID_INTENTS = {"search", "recommend", "order", "analytics", "chat"}
 
-INTENTS: list[str] = ["search", "recommend", "order", "analytics", "chat"]
-
-INTENT_DESCRIPTIONS: dict[str, str] = {
-    "search":    "find products, search catalog, look up items, browse inventory, keyword search, "
-                 "搜索 查找 寻找 商品 产品 浏览 关键词 搜一下 找一下",
-    "recommend": "get recommendations, suggest products, personalized picks, what should I buy, trending, popular, similar, for you, "
-                 "推荐 建议 热门 流行 趋势 相似 类似 为你 帮我选 买什么",
-    "order":     "check order status, cancel order, refund, return, track shipment, order detail, purchase history, "
-                 "订单 查询 取消 退款 退货 物流 跟踪 已购买 购买记录",
-    "analytics": "weekly report, analytics, statistics, performance, metrics report, data summary, revenue, sales report, "
-                 "报告 统计 分析 数据 营收 销售 周报 报表 指标 性能",
-    "chat":      "general conversation, chitchat, help, how are you, small talk, greetings, thank you, hello, hi, "
-                 "你好 谢谢 再见 聊天 帮助 打招呼",
-}
-
-FAST_CONFIDENCE_THRESHOLD: float = 0.85
-
-# ── Keyword boost tables ───────────────────────────────────────────────
-
-KEYWORD_BOOST: dict[str, list[str]] = {
-    "search":    ["search", "find", "look", "show", "product", "item",
-                  "catalog", "price", "available", "buy",
-                  "搜索", "找", "查找", "搜", "商品", "产品", "有没有",
-                  "浏览", "关键词", "搜一下", "找一下", "看看"],
-    "recommend": ["recommend", "suggest", "popular", "trending", "best",
-                  "top", "pick", "for me", "gift", "like",
-                  "推荐", "建议", "热门", "流行", "趋势", "相似",
-                  "类似", "为你", "帮我选", "买什么", "礼物", "喜欢"],
-    "order":     ["order", "cancel", "refund", "return", "ship", "track",
-                  "status", "delivery", "bought", "purchase",
-                  "订单", "取消", "退款", "退货", "物流", "跟踪",
-                  "快递", "发货", "购买", "已买"],
-    "analytics": ["report", "analytics", "statistics", "revenue",
-                  "sales report", "weekly", "dashboard", "metrics",
-                  "performance", "data",
-                  "报告", "统计", "分析", "数据", "营收",
-                  "销售", "周报", "报表", "指标", "性能", "仪表盘"],
-    "chat":      ["hello", "hi", "hey", "help", "thanks", "bye",
-                  "how are you", "what's up", "good morning",
-                  "你好", "谢谢", "再见", "帮助", "打招呼",
-                  "早", "嗨", "哈喽"],
-}
-
-
-# ── Token helpers ──────────────────────────────────────────────────────
-
-def _tokenize(text: str) -> set[str]:
-    """Tokenize: English words + individual CJK characters."""
-    tokens = set(re.findall(r"[\u4e00-\u9fff]|\w+", text.lower()))
-    # Also add bigrams for Chinese (better matching for multi-char terms)
-    cjk_chars = re.findall(r"[\u4e00-\u9fff]", text)
-    for i in range(len(cjk_chars) - 1):
-        tokens.add(cjk_chars[i] + cjk_chars[i + 1])
-    return tokens
-
-
-def _jaccard_similarity(a: set[str], b: set[str]) -> float:
-    """Jaccard similarity between two token sets."""
-    if not a or not b:
-        return 0.0
-    return len(a & b) / len(a | b)
-
-
-# ── Fast classifier ────────────────────────────────────────────────────
-
-# Pre-computed token sets for intent descriptions (module-level cache)
-_INTENT_TOKENS: dict[str, set[str]] = {
-    intent: _tokenize(desc)
-    for intent, desc in INTENT_DESCRIPTIONS.items()
-}
-
-
-def _fast_classify(query: str) -> tuple[str, float]:
-    """Fast-path classification via Jaccard similarity + keyword boosting.
-
-    Returns:
-        (intent, confidence) — best intent and its normalized confidence.
-    """
-    query_tokens = _tokenize(query)
-    query_lower = query.lower()
-
-    scores: dict[str, float] = {}
-    for intent in INTENTS:
-        # Base: Jaccard similarity against intent description
-        base_score = _jaccard_similarity(query_tokens, _INTENT_TOKENS[intent])
-
-        # Keyword boosting: each matching keyword adds 0.08, capped at 0.24
-        keywords = KEYWORD_BOOST.get(intent, [])
-        keyword_hits = sum(1 for kw in keywords if kw in query_lower)
-        boost = min(keyword_hits * 0.08, 0.24)
-
-        scores[intent] = base_score + boost
-
-    # Normalize to [0, 1]
-    total = sum(scores.values())
-    if total > 0:
-        scores = {k: v / total for k, v in scores.items()}
-
-    best_intent = max(scores, key=scores.get)  # type: ignore[arg-type]
-    confidence = scores[best_intent]
-    return best_intent, confidence
-
-
-# ── Entry Router Node ──────────────────────────────────────────────────
 
 def entry_router(state: AgentState) -> Command:
-    """Entry router node — classifies intent and routes dynamically.
+    """Dispatch to the correct graph node.  Reference resolution runs first."""
 
-    Fast-path routing with safe degrade:
-      1. Jaccard token similarity (always first)
-      2. Safe degrade: when confidence < threshold, default to "chat"
+    query = state.user_query or ""
+    session_id = state.session_id or ""
 
-    Floor enforcement: if final confidence < 0.3, force "chat".
+    # ═══════════════════════════════════════════════════════════
+    # Path 0: Reference resolution (BEFORE all dispatch paths)
+    # ═══════════════════════════════════════════════════════════
+    _try_resolve_reference(state, query, session_id)
 
-    Returns:
-        Command(goto=intent, update={intent, confidence, routing_method, current_node})
-    """
-    # State Router preset: accept intent from Layer 0
-    # entry_router is an EXECUTOR — must not override state_router's decision.
+    # Base update — always include parallel_results so LangGraph
+    # preserves in-place mutations made by _try_resolve_reference.
+    base_update = {
+        "current_node": "entry_router",
+        "parallel_results": state.parallel_results,
+    }
+
+    # ── Path 1: Preset intent ──
     preset = state.control_context.get("preset_intent", "")
-    if preset in ("search", "recommend", "order", "analytics", "chat"):
-        return Command(
-            goto=preset,
-            update={
-                "intent": preset,
-                "confidence": 0.9,
-                "routing_method": "preset",
-                "current_node": "entry_router",
-                "ui_message": f"匹配到「{preset}」意图（路由预设）",
-            },
-        )
+    if preset in VALID_INTENTS:
+        return Command(goto=preset, update={
+            **base_update,
+            "intent": preset, "confidence": 0.9,
+            "routing_method": "preset",
+            "ui_message": f"匹配到「{preset}」意图（路由预设）",
+        })
 
-    # ConstraintParser override
-    # When orchestrator set _search_plan via ConstraintParser, use its intent
-    # directly instead of running Jaccard classification.
+    # ── Path 2: ConstraintParser ──
     search_plan = state.parallel_results.get("_search_plan")
     if search_plan:
         intent = search_plan.get("intent", "chat")
-        # Only trust ConstraintParser for definitive intents.
-        # "ambiguous" means no structured constraints detected →
-        # fall through to Jaccard classifier below.
         if intent != "ambiguous":
-            NODE_MAP = {"sort": "search", "recommend": "recommend"}
-            goto = NODE_MAP.get(intent, intent)
-            if goto not in ("search", "recommend", "chat", "order", "analytics"):
+            goto = _CONSTRAINT_NODE_MAP.get(intent, intent)
+            if goto not in VALID_INTENTS:
                 goto = "chat"
-            return Command(
-                goto=goto,
-                update={
-                    "intent": goto,
-                    "confidence": 0.95,
-                    "routing_method": "constraint_parser",
-                    "current_node": "entry_router",
-                    "ui_message": f"匹配到「{intent}」意图（约束解析）",
-                },
-            )
+            return Command(goto=goto, update={
+                **base_update,
+                "intent": goto, "confidence": 0.95,
+                "routing_method": "constraint_parser",
+                "ui_message": f"匹配到「{intent}」意图（约束解析）",
+            })
 
-    # ── P3: Session memory check for follow-up answers ──
+    # ── Path 3: Session memory ──
     from agents.graph.session_memory import get as get_session_memory, collect_answer
-
-    session_mem = get_session_memory(state.session_id)
+    session_mem = get_session_memory(session_id)
     if session_mem and session_mem.pending_intent:
-        # This is a follow-up answer to a previous clarify question.
-        # Skip intent classification — route directly to pending intent.
         if session_mem.missing_slots:
-            # The user's query IS the answer (e.g. clicked "1000-3000")
-            # Try to match it to a missing slot
             for slot_key in session_mem.missing_slots:
-                collect_answer(state.session_id, slot_key, state.user_query)
-        return Command(
-            goto=session_mem.pending_intent,
-            update={
-                "intent": session_mem.pending_intent,
-                "confidence": 1.0,
-                "routing_method": "session",
-                "current_node": "entry_router",
-                "clarify_round": 1,
-                "ui_message": f"继续「{session_mem.pending_intent}」流程…",
-            },
-        )
+                collect_answer(session_id, slot_key, query)
+        return Command(goto=session_mem.pending_intent, update={
+            **base_update,
+            "intent": session_mem.pending_intent, "confidence": 1.0,
+            "routing_method": "session", "clarify_round": 1,
+            "ui_message": f"继续「{session_mem.pending_intent}」流程…",
+        })
 
-    query = state.user_query
-    history = state.history if hasattr(state, "history") else []
+    # ── Path 4: Default ──
+    logger.info("No preset_intent — defaulting to chat")
+    return Command(goto="chat", update={
+        **base_update,
+        "intent": "chat", "confidence": 0.5,
+        "routing_method": "default",
+        "ui_message": "你好！有什么可以帮你的？",
+    })
 
-    # ── Tier 1: Fast path ──
-    fast_intent, fast_confidence = _fast_classify(query)
 
-    # Phase B-3: dynamic threshold from RoutingTuner
-    from agents.graph.routing.tuner import get_threshold, record_routing
-    current_threshold = get_threshold()
+# ═══════════════════════════════════════════════════════════════
+# Reference resolution (Path 0)
+# ═══════════════════════════════════════════════════════════════
 
-    if fast_confidence >= current_threshold:
-        logger.debug(
-            "Fast router: intent=%s, confidence=%.2f, method=fast",
-            fast_intent, fast_confidence,
-        )
-        intent = fast_intent
-        confidence = fast_confidence
-        method = "fast"
-    else:
-        # ── Safe degrade ──
-        # entry_router is an EXECUTOR, not a decision-maker.
-        # state_router is the sole routing authority.
-        # Low-confidence → default to "chat".
-        logger.info(
-            "Fast router confidence %.2f < %.2f, degrading to chat",
-            fast_confidence, current_threshold,
-        )
-        intent = "chat"
-        confidence = max(fast_confidence, 0.3)
-        method = "fast_degraded"
+def _try_resolve_reference(state: AgentState, query: str, session_id: str) -> None:
+    """Resolve product references BEFORE dispatch.  Sets _resolved_product_id
+    and preset_intent on state so dispatch paths route correctly."""
+    if not session_id or not query.strip():
+        return
+    if not _has_reference(query):
+        return
 
-    # ── Floor enforcement ──
-    if confidence < 0.3:
-        logger.warning(
-            "Confidence %.2f below floor 0.3, forcing 'chat'", confidence
-        )
-        intent = "chat"
-        confidence = 0.3
+    import django
+    django.setup()
+    from agents.models import AgentConversation
+    from agents.graph.session_memory import get_conv_state
 
-    # ── Phase B-3: Record routing decision for tuning ──
-    try:
-        record_routing(
-            session_id=state.session_id,
-            intent=intent,
-            fast_confidence=fast_confidence,
-            routing_method=method,
-        )
-    except Exception:
-        pass
-
-    # ── Return Command with dynamic goto ──
-    return Command(
-        goto=intent,
-        update={
-            "intent": intent,
-            "confidence": confidence,
-            "routing_method": method,
-            "current_node": "entry_router",
-            "ui_message": f"匹配到「{intent}」意图（置信度 {int(confidence*100)}%）",
-        },
+    # 1. Look up displayed products from last assistant message
+    msg = (
+        AgentConversation.objects
+        .filter(session_id=session_id, role="assistant")
+        .order_by("-created_at")
+        .first()
     )
+    if not msg or not msg.metadata:
+        return
+
+    products = []
+    for b in msg.metadata.get("blocks", []):
+        if b.get("type") == "product_card":
+            products = b.get("data", {}).get("products", [])
+            break
+    if not products:
+        return
+
+    # 2. Resolve index
+    import re
+    m = re.search(r'第\s*([\d一二两三四五六七八九十]+)\s*[个款]', query)
+    if not m:
+        return
+
+    num_str = m.group(1)
+    NUM_MAP = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+               "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+    idx = NUM_MAP.get(num_str, int(num_str) if num_str.isdigit() else 1) - 1
+    if idx < 0 or idx >= len(products):
+        logger.debug("Reference index %d out of range (products=%d)", idx, len(products))
+        return
+
+    p = products[idx]
+    state.parallel_results["_resolved_product_id"] = p.get("product_id", p.get("id", 0))
+    state.parallel_results["_resolved_product_name"] = p.get("name", p.get("product_name", ""))
+
+    # 3. Recover last intent so dispatch knows where to go
+    cs = get_conv_state(session_id)
+    last_intent = cs.last_intent if cs else "search"
+    if last_intent not in VALID_INTENTS:
+        last_intent = "search"
+    state.control_context["preset_intent"] = last_intent
+
+    logger.debug("Resolved reference '%s' → id=%s name=%s intent=%s",
+                 query, state.parallel_results["_resolved_product_id"],
+                 state.parallel_results["_resolved_product_name"], last_intent)
+
+
+def _has_reference(query: str) -> bool:
+    """True if query contains an index-based product reference."""
+    import re
+    return bool(re.search(r'第\s*[一二两三四五六七八九十\d]+\s*[个款]', query))

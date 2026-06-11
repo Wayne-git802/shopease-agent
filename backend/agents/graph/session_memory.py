@@ -1,5 +1,5 @@
 """
-Session Memory — in-process short-term memory for multi-turn clarification.
+Session Memory — DB-backed short-term state for multi-turn conversations.
 
 When the graph asks a clarifying question, it stores the pending state here.
 On the next invocation, entry_router and recommend_node recover context from
@@ -10,20 +10,27 @@ Lifecycle:
   - Consumed by entry_router (skip intent classification) + recommend_node (enrich)
   - Cleared after a successful (non-clarify) response, or after TTL expires
 
-Storage: in-process dict (fast, zero-dependency).  Restart-safe enough because
-clarify conversations are < 30 seconds.  Future: swap to SQLite via same interface.
+Storage: Django DB (was in-process dict).  Survives process restarts and
+works across multiple workers.  Expired rows lazily cleaned on read.
 """
+from __future__ import annotations
 
+import logging
 import time
-from datetime import datetime, timezone
+from datetime import timedelta
+
+from django.utils import timezone as django_timezone
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 TTL_SECONDS = 300   # 5 minutes — clarify chains are short-lived
 
 
 class SessionMemory(BaseModel):
+    """In-memory representation.  Persisted via SessionState model."""
     session_id: str
-    pending_intent: str = ""            # The intent being pursued (e.g. "recommend")
+    pending_intent: str = ""
     collected_slots: dict[str, str] = Field(default_factory=dict)
     missing_slots: list[str] = Field(default_factory=list)
     created_at: float = Field(default_factory=time.time)
@@ -33,34 +40,87 @@ class SessionMemory(BaseModel):
         return (time.time() - self.created_at) > TTL_SECONDS
 
 
-# ── In-process store ──────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# DB helpers
+# ═══════════════════════════════════════════════════════════════
 
-_store: dict[str, SessionMemory] = {}
+def _row_to_session_memory(row) -> SessionMemory:
+    """Convert a SessionState DB row to a SessionMemory pydantic model."""
+    return SessionMemory(
+        session_id=row.session_id,
+        pending_intent=row.pending_intent,
+        collected_slots=row.collected_slots or {},
+        missing_slots=row.missing_slots or [],
+        created_at=row.created_at.timestamp(),
+    )
 
+
+def _now() -> datetime:
+    return django_timezone.now()
+
+
+def _get_row(session_id: str):
+    """Fetch a non-expired SessionState row, or None."""
+    from agents.models import SessionState
+
+    try:
+        row = SessionState.objects.filter(session_id=session_id).first()
+    except Exception:
+        logger.warning("SessionState query failed for session=%s", session_id, exc_info=True)
+        return None
+
+    if row is None:
+        return None
+
+    if row.expires_at < _now():
+        # Lazy cleanup — expired
+        try:
+            row.delete()
+        except Exception:
+            logger.warning("SessionState lazy delete failed for session=%s", session_id, exc_info=True)
+        return None
+
+    return row
+
+
+# ═══════════════════════════════════════════════════════════════
+# Public API (unchanged signatures)
+# ═══════════════════════════════════════════════════════════════
 
 def get(session_id: str) -> SessionMemory | None:
     """Retrieve and validate session memory. Returns None if expired or missing."""
-    mem = _store.get(session_id)
-    if mem is None:
+    row = _get_row(session_id)
+    if row is None:
         return None
-    if mem.expired:
-        # Soft reset: clear pending state, keep active_domain for continuity
-        mem.pending_intent = ""
-        mem.collected_slots = {}
-        mem.missing_slots = []
-        mem.created_at = time.time()
-        return None
-    return mem
+    return _row_to_session_memory(row)
 
 
 def put(mem: SessionMemory) -> None:
     """Store or update session memory."""
-    _store[mem.session_id] = mem
+    from agents.models import SessionState
+
+    try:
+        SessionState.objects.update_or_create(
+            session_id=mem.session_id,
+            defaults={
+                "pending_intent": mem.pending_intent,
+                "collected_slots": mem.collected_slots,
+                "missing_slots": mem.missing_slots,
+                "expires_at": _now() + timedelta(seconds=TTL_SECONDS),
+            },
+        )
+    except Exception:
+        logger.warning("SessionState put failed for session=%s", mem.session_id, exc_info=True)
 
 
 def clear(session_id: str) -> None:
     """Remove session memory after a successful resolution."""
-    _store.pop(session_id, None)
+    from agents.models import SessionState
+
+    try:
+        SessionState.objects.filter(session_id=session_id).delete()
+    except Exception:
+        logger.warning("SessionState clear failed for session=%s", session_id, exc_info=True)
 
 
 def collect_answer(session_id: str, slot_key: str, value: str) -> None:
@@ -69,7 +129,6 @@ def collect_answer(session_id: str, slot_key: str, value: str) -> None:
     if mem is None:
         return
     mem.collected_slots[slot_key] = value
-    # Remove from missing
     if slot_key in mem.missing_slots:
         mem.missing_slots.remove(slot_key)
     put(mem)
@@ -77,43 +136,76 @@ def collect_answer(session_id: str, slot_key: str, value: str) -> None:
 
 def cleanup_expired() -> int:
     """Remove all expired entries. Returns count removed."""
-    now = time.time()
-    expired = [sid for sid, m in _store.items() if (now - m.created_at) > TTL_SECONDS]
-    for sid in expired:
-        del _store[sid]
-    return len(expired)
+    from agents.models import SessionState
+
+    try:
+        count, _ = SessionState.objects.filter(expires_at__lt=_now()).delete()
+        return count
+    except Exception:
+        logger.warning("SessionState cleanup failed", exc_info=True)
+        return 0
 
 
 # ═══════════════════════════════════════════════════════════════
-# ConversationState — deterministic session state for preprocessor
+# ConversationState — also DB-backed now
 # ═══════════════════════════════════════════════════════════════
 
-_conv_store: dict[str, "ConversationState"] = {}
+from .preprocessor import ConversationState, DialogueContext
 
-# Import here to avoid circular dependency
-from .preprocessor import ConversationState
+
+def _row_to_conv_state(row) -> ConversationState:
+    """Convert a SessionState DB row to a ConversationState dataclass."""
+    return ConversationState(
+        session_id=row.session_id,
+        last_intent=row.last_intent,
+        pending_action_type=row.pending_action_type,
+        pending_question=row.pending_question,
+        pending_options=row.pending_options or {},
+        original_query=row.original_query,
+        context_summary=row.context_summary,
+        created_at=row.created_at.timestamp(),
+        dialogue=DialogueContext(
+            injected_slot=row.injected_slot,
+            last_user_query=row.last_user_query,
+            expects_followup=row.expects_followup,
+        ),
+    )
 
 
 def get_conv_state(session_id: str) -> ConversationState | None:
     """Retrieve conversation state for the preprocessor."""
     if not session_id:
         return None
-    cs = _conv_store.get(session_id)
-    if cs is None:
+    row = _get_row(session_id)
+    if row is None:
         return None
-    # Same TTL as SessionMemory
-    if (time.time() - cs.created_at) > TTL_SECONDS:
-        del _conv_store[session_id]
-        return None
-    return cs
+    return _row_to_conv_state(row)
 
 
 def put_conv_state(cs: ConversationState) -> None:
     """Store or update conversation state."""
-    cs.created_at = time.time()
-    _conv_store[cs.session_id] = cs
+    from agents.models import SessionState
+
+    try:
+        SessionState.objects.update_or_create(
+            session_id=cs.session_id,
+            defaults={
+                "last_intent": cs.last_intent,
+                "pending_action_type": cs.pending_action_type,
+                "pending_question": cs.pending_question,
+                "pending_options": cs.pending_options,
+                "original_query": cs.original_query,
+                "context_summary": cs.context_summary,
+                "injected_slot": cs.dialogue.injected_slot or "",
+                "last_user_query": cs.dialogue.last_user_query,
+                "expects_followup": cs.dialogue.expects_followup,
+                "expires_at": _now() + timedelta(seconds=TTL_SECONDS),
+            },
+        )
+    except Exception:
+        logger.warning("ConversationState put failed for session=%s", cs.session_id, exc_info=True)
 
 
 def clear_conv_state(session_id: str) -> None:
     """Remove conversation state."""
-    _conv_store.pop(session_id, None)
+    clear(session_id)  # same row

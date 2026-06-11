@@ -11,7 +11,10 @@ Strategy is selected by SearchStrategySelector, not by parser alone.
 
 import re
 import time
+import logging
 from functools import lru_cache
+
+logger = logging.getLogger(__name__)
 
 from ..state import AgentState, NodeTrace, ProductRef, DocRef
 from ..contracts.search_plan import (
@@ -82,7 +85,7 @@ def _llm_detect_cached(normalized: str) -> SearchPlan | None:
                     detail=f"LLM extracted: {sort_by} {direction}",
                 )
     except Exception:
-        pass
+        logger.warning("LLM sort detection failed, falling back", exc_info=True)
     return None
 
 
@@ -172,6 +175,35 @@ def search_node(state: AgentState) -> AgentState:
     Uses SearchStrategySelector to decide SQL_ONLY / SEMANTIC / HYBRID.
     HYBRID mode produces both structured and semantic results for merge_node.
     """
+    import django
+    django.setup()
+
+    # ── Fast path: resolved product reference (e.g. "第一个") ──
+    resolved_pid = state.parallel_results.get("_resolved_product_id")
+    if resolved_pid:
+        from products.models import Product
+        try:
+            p = Product.objects.get(id=resolved_pid)
+            pr = ProductRef(
+                id=p.id, name=p.name, price=float(p.price or 0),
+                category=p.category.name if p.category else "",
+                relevance=1.0,
+            )
+            state.retrieved_products = [pr]
+            state.tool_results["products"] = [{
+                "product_id": p.id, "product_name": p.name, "name": p.name,
+                "price": str(p.price), "category_name": p.category.name if p.category else "",
+                "score": 1.0,
+            }]
+            state.current_node = "search"
+            state.steps_done.append("search")
+            state.ui_message = f"已选择：{p.name}"
+            state.parallel_results["_search_phase_label"] = "引用解析"
+            state.parallel_results["_search_phase_detail"] = f"用户选择了第{resolved_pid}号商品"
+            return state
+        except Product.DoesNotExist:
+            logger.warning("Resolved product_id=%s not found in DB", resolved_pid)
+            # Fall through to normal search
 
     start = time.time()
 
@@ -200,7 +232,7 @@ def search_node(state: AgentState) -> AgentState:
             from ..feedback.signal_store import signal_count
             _active_signals = signal_count(state.user_id)
         except Exception:
-            pass
+            logger.warning("Signal count query failed for user=%s", state.user_id, exc_info=True)
 
     from ..search_strategy_selector import select as select_strategy, SearchStrategy
     strategy_dec = select_strategy(
@@ -251,6 +283,9 @@ def search_node(state: AgentState) -> AgentState:
 
     # ── Store results ────────────────────────────────────────
     state.retrieved_products = products
+
+    # Build DocRef from Product DB fields (Product RAG)
+    docs = _build_doc_refs(products)
     state.retrieved_docs = docs
 
     # For HYBRID: store structured results separately for merge_node
@@ -309,3 +344,43 @@ def search_node(state: AgentState) -> AgentState:
     ))
 
     return state
+
+
+def _build_doc_refs(products: list[ProductRef]) -> list[DocRef]:
+    """Build DocRef with full product specs from DB for RAG context injection."""
+    if not products:
+        return []
+
+    import django
+    django.setup()
+    from products.models import Product
+
+    docs: list[DocRef] = []
+    product_ids = [p.id for p in products]
+    db_products = {
+        p.id: p
+        for p in Product.objects.filter(id__in=product_ids)
+    }
+
+    for p in products:
+        detail_parts = [f"{p.name} | ¥{p.price}"]
+        db_p = db_products.get(p.id)
+        if db_p:
+            if db_p.battery_life:
+                detail_parts.append(f"续航{db_p.battery_life}h")
+            if db_p.bluetooth_version:
+                detail_parts.append(f"蓝牙{db_p.bluetooth_version}")
+            if db_p.noise_cancellation:
+                detail_parts.append("主动降噪")
+            if db_p.weight:
+                detail_parts.append(f"{db_p.weight}g")
+            if db_p.specs:
+                for k, v in db_p.specs.items():
+                    detail_parts.append(f"{k}:{v}")
+        docs.append(DocRef(
+            id=str(p.id),
+            content=" | ".join(detail_parts),
+            relevance=p.relevance,
+        ))
+
+    return docs

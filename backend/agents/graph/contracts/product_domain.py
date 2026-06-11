@@ -6,7 +6,11 @@ personalized recommendations.  Each slot has a priority (required/optional)
 and valid value ranges for filtering.
 """
 
+import logging
+
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class SlotDef(BaseModel):
@@ -25,6 +29,7 @@ def _get_budget_options() -> list[str]:
         from .budget_tiers import get_budget_options
         return get_budget_options()
     except Exception:
+        logger.warning("Budget tiers load failed, using defaults", exc_info=True)
         return ["¥0 - ¥20", "¥20 - ¥50", "¥50 - ¥100", "¥100 - ¥200", "¥200+"]
 
 

@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}ShopEase - Online Store{% endblock %}</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=20260429e">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260429f">
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -39,7 +42,7 @@
         for (const item of prefixMatches) {
             if (path.startsWith(item.prefix)) {
                 const el = document.getElementById(item.id);
-                if (el) { el.style.color = '#2563eb'; el.style.fontWeight = '600'; }
+                if (el) { el.style.color = '#b8860b'; el.style.fontWeight = '600'; }
                 break;
             }
         }
@@ -68,7 +71,7 @@
                     <li><a href="/users/register/" id="nav-register">Register</a></li>
                 {% endif %}
                 <li><a href="/ai/workspace/" id="nav-ai"
-                       style="background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff !important; border-radius: 20px; padding: 0.4rem 1rem;">🤖 AI</a></li>
+                       style="background: linear-gradient(135deg, #b8860b, #c5923e); color: #fff !important; border-radius: 20px; padding: 0.4rem 1rem;">🤖 AI</a></li>
                 {% if user.is_staff %}
                     <li><a href="/manage/" id="nav-admin" style="background: linear-gradient(135deg, #ea580c, #be123c); color: #fff !important; border-radius: 20px; padding: 0.4rem 1rem;">⚙️ Admin</a></li>
                 {% endif %}
@@ -119,7 +122,7 @@
         if (activeId) {
             const activeLink = document.getElementById(activeId);
             if (activeLink) {
-                activeLink.style.color = '#2563eb'; // 蓝色
+                activeLink.style.color = '#b8860b'; // 暖金色
                 activeLink.style.fontWeight = '600'; // 加粗
             }
         }
@@ -221,7 +224,7 @@
                     <li><a href="/products/">All Products</a></li>
                     <li><a href="/orders/">My Orders</a></li>
                     <li><a href="/cart/">Shopping Cart</a></li>
-                    <li><a href="/ai/workspace/" style="color: #7c3aed;">🤖 AI Assistant</a></li>
+                    <li><a href="/ai/workspace/" style="color: #b8860b;">🤖 AI Assistant</a></li>
                 </ul>
             </div>
             <div>
@@ -247,6 +250,23 @@
     }
     </script>
     <script src="/static/js/cart.js?v=20260429c"></script>
+    <script>
+    // ── Scroll Reveal ──
+    (function() {
+        const observer = new IntersectionObserver(function(entries) {
+            entries.forEach(function(entry) {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('revealed');
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.15, rootMargin: '0px 0px -30px 0px' });
+
+        document.querySelectorAll('.reveal').forEach(function(el) {
+            observer.observe(el);
+        });
+    })();
+    </script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

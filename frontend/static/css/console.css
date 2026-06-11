@@ -22,13 +22,14 @@
     padding: 8px 18px;
     border-radius: 8px;
     text-decoration: none;
-    color: #6b7280;
+    color: var(--text-muted, #8c7b6e);
     font-weight: 500;
     font-size: 14px;
     transition: all 0.2s;
+    font-family: var(--font-body, 'DM Sans', sans-serif);
 }
-.nav-link:hover { background: #f3f4f6; color: #374151; }
-.nav-link.active { background: #111827; color: #fff; }
+.nav-link:hover { background: var(--border-light, #f5efe6); color: var(--text, #2d2418); }
+.nav-link.active { background: var(--text, #2d2418); color: #fff; }
 
 /* ── Section ────────────────────────────────── */
 .console-section {
@@ -44,21 +45,22 @@
     font-size: 18px;
     font-weight: 700;
     margin: 0;
-    color: #111827;
+    color: var(--text, #2d2418);
+    font-family: var(--font-display, 'Cormorant Garamond', serif);
 }
 .section-subtitle {
     font-size: 13px;
-    color: #9ca3af;
+    color: var(--text-light, #b8a99a);
     margin-left: 4px;
 }
 .section-header h3 {
     font-size: 15px;
     font-weight: 600;
     margin: 0;
-    color: #374151;
+    color: var(--text, #2d2418);
 }
 .section-badge {
-    background: #111827;
+    background: var(--text, #2d2418);
     color: #fff;
     padding: 2px 10px;
     border-radius: 12px;
@@ -66,15 +68,93 @@
     font-weight: 600;
 }
 
-/* ── Layer 1: Health Bar ────────────────────── */
+/* ── Retrieval Quality ──────────────────────── */
+.retrieval-panel {
+    margin-bottom: 28px;
+}
+.retrieval-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 10px;
+}
+.retrieval-card {
+    border-radius: 12px;
+    padding: 20px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border: 1px solid transparent;
+    transition: box-shadow 0.2s, transform 0.2s;
+}
+.retrieval-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    transform: translateY(-1px);
+}
+.retrieval-card.knowledge {
+    background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+    border-color: #bbf7d0;
+}
+.retrieval-card.product {
+    background: linear-gradient(135deg, #fdf8ed, #f5efe6);
+    border-color: #e8d5b8;
+}
+.retrieval-card.structured {
+    background: linear-gradient(135deg, #eff6ff, #dbeafe);
+    border-color: #bfdbfe;
+}
+.retrieval-icon {
+    font-size: 22px;
+    margin-bottom: 4px;
+}
+.retrieval-label {
+    font-size: 12px;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+.retrieval-value {
+    font-size: 34px;
+    font-weight: 800;
+    line-height: 1;
+    font-family: var(--font-display, 'Cormorant Garamond', serif);
+}
+.retrieval-card.knowledge .retrieval-value { color: #15803d; }
+.retrieval-card.product    .retrieval-value { color: #92400e; }
+.retrieval-card.structured .retrieval-value { color: #1e40af; }
+.retrieval-unit {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-top: 2px;
+}
+.retrieval-detail {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-top: 2px;
+}
+.retrieval-index {
+    background: var(--bg, #faf8f5);
+    border: 1px solid var(--border, #e8e0d5);
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: 12px;
+    color: var(--text-muted, #8c7b6e);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.retrieval-index .retrieval-icon { margin-bottom: 0; font-size: 16px; }
+
+/* ── Layer 1: Health Bar ── */
 .health-bar {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 12px;
 }
 .health-metric {
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
+    background: var(--bg, #faf8f5);
+    border: 1px solid var(--border, #e8e0d5);
     border-radius: 10px;
     padding: 14px 16px;
     display: flex;
@@ -83,20 +163,21 @@
 }
 .health-label {
     font-size: 12px;
-    color: #6b7280;
+    color: var(--text-muted, #8c7b6e);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 4px;
 }
 .health-value {
+    font-family: var(--font-display, 'Cormorant Garamond', serif);
     font-size: 28px;
     font-weight: 800;
-    color: #111827;
+    color: var(--text, #2d2418);
     line-height: 1;
 }
 .health-unit {
     font-size: 12px;
-    color: #9ca3af;
+    color: var(--text-light, #b8a99a);
     margin-top: 2px;
 }
 
@@ -186,8 +267,8 @@
     transition: background 0.15s;
 }
 .trace-row:last-child { border-bottom: none; }
-.trace-row:hover { background: #f9fafb; }
-.trace-row.active { background: #eff6ff; border-left: 3px solid #3b82f6; }
+.trace-row:hover { background: var(--primary-light, #fdf8ed); }
+.trace-row.active { background: var(--primary-light, #fdf8ed); border-left: 3px solid var(--accent, #c5923e); }
 .trace-row-new { animation: fadeSlideIn 0.4s ease-out; }
 
 .trace-intent {
@@ -199,12 +280,12 @@
     text-transform: uppercase;
     letter-spacing: 0.3px;
 }
-.intent-search    { background: #dbeafe; color: #1d4ed8; }
-.intent-recommend { background: #dcfce7; color: #15803d; }
-.intent-chat      { background: #f3f4f6; color: #4b5563; }
-.intent-analytics { background: #fef3c7; color: #b45309; }
-.intent-ops       { background: #fce7f3; color: #be185d; }
-.intent-order     { background: #ede9fe; color: #6d28d9; }
+.intent-search    { background: var(--primary-light, #fdf8ed); color: var(--primary, #b8860b); }
+.intent-recommend { background: #ebf5eb; color: #3b5e3b; }
+.intent-chat      { background: var(--border-light, #f5efe6); color: var(--text-muted, #8c7b6e); }
+.intent-analytics { background: #fdf8ed; color: #8b6914; }
+.intent-ops       { background: #faf0ef; color: #8b3734; }
+.intent-order     { background: #f5efe6; color: #6b4c20; }
 
 .trace-query {
     font-size: 14px;
@@ -228,7 +309,7 @@
     text-align: right;
 }
 
-/* ── Insight Cards ──────────────────────────── */
+/* ── Insight Cards ── */
 .insight-cards {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -236,8 +317,8 @@
     margin-bottom: 16px;
 }
 .insight-card {
-    background: #fff;
-    border: 1px solid #e5e7eb;
+    background: var(--card-bg, #fff);
+    border: 1px solid var(--border, #e8e0d5);
     border-radius: 10px;
     padding: 14px 16px;
     display: flex;
@@ -245,27 +326,28 @@
     gap: 4px;
     animation: fadeSlideIn 0.35s ease-out both;
 }
-.card-icon {
-    font-size: 20px;
-    margin-bottom: 4px;
-}
+.card-icon { font-size: 20px; margin-bottom: 4px; }
 .card-label {
     font-size: 11px;
-    color: #9ca3af;
+    color: var(--text-muted, #8c7b6e);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     font-weight: 600;
 }
-.card-value {
-    font-size: 13px;
-    color: #374151;
-    font-weight: 500;
-}
-.card-meta {
-    font-size: 11px;
-    color: #d1d5db;
-    margin-top: 2px;
-}
+.card-value { font-size: 13px; color: var(--text, #2d2418); font-weight: 500; }
+.card-meta { font-size: 11px; color: var(--text-light, #b8a99a); margin-top: 2px; }
+
+/* ── Bar chart ── */
+.bar-track { background: var(--border-light, #f5efe6); }
+.bar-fill { background: linear-gradient(90deg, var(--primary, #b8860b), var(--accent, #c5923e)); }
+
+/* ── Trace row ── */
+.trace-row.active { background: var(--primary-light, #fdf8ed); border-left: 3px solid var(--accent, #c5923e); }
+
+/* ── Impact card ── */
+.impact-card.ranking-lift { background: linear-gradient(135deg, #ebf5eb, #d4e8d4); border-color: #b8d8b8; }
+.impact-card.clarify { background: linear-gradient(135deg, #fdf8ed, #f5efe6); border-color: #e8d5b8; }
+.impact-card.fallback { background: linear-gradient(135deg, #f5efe6, #ede4d6); border-color: #d8c8b0; }
 
 /* ── Ranking Diff ───────────────────────────── */
 .ranking-diff {

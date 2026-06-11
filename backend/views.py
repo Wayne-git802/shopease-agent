@@ -1,6 +1,8 @@
 """
 Template Views - Render HTML pages for the frontend
 """
+import logging
+
 from django.shortcuts import render, redirect
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -8,6 +10,8 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Sum, Count, Q, Avg
 from django.http import JsonResponse
+
+logger = logging.getLogger(__name__)
 from django.contrib.auth import get_user_model
 
 from products.models import Category, Product, ProductStatus, Shop, ShopStatus
@@ -37,6 +41,7 @@ def home(request):
             p.ai_explain = explain
             p.ai_rank = idx + 1
     except Exception:
+        logger.warning("AI recommendation in home view failed, falling back to raw products", exc_info=True)
         # Graceful fallback: raw popular products
         featured_products = Product.objects.filter(is_active=True).select_related(
             'category', 'seller', 'inventory'
@@ -580,7 +585,7 @@ def admin_overview_api(request):
             fast_count = sum(1 for l in latencies if l < 2000)
             health['fast_ratio'] = round(fast_count / n * 100, 1) if n else 0
     except Exception:
-        pass
+        logger.warning("Admin health API failed", exc_info=True)
 
     return JsonResponse({
         'total_orders': total_orders, 'active_sellers': active_sellers,

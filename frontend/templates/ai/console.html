@@ -11,7 +11,43 @@
 {% block content %}
 <div class="console-container">
 
-    <!-- Navigation -->
+    <!-- Retrieval Quality -->
+    <section class="console-section retrieval-panel">
+        <div class="section-header">
+            <h2>🔍 Retrieval Quality</h2>
+            <span class="section-subtitle">Benchmark-driven evaluation</span>
+        </div>
+        <div class="retrieval-cards">
+            <div class="retrieval-card knowledge">
+                <span class="retrieval-icon">📚</span>
+                <span class="retrieval-label">Knowledge RAG</span>
+                <span class="retrieval-value">95.0%</span>
+                <span class="retrieval-unit">source accuracy</span>
+                <span class="retrieval-detail">MRR 0.867 · 19/20 queries</span>
+                <span class="retrieval-detail">4 docs · 32 chunks · ChromaDB</span>
+            </div>
+            <div class="retrieval-card product">
+                <span class="retrieval-icon">🛍️</span>
+                <span class="retrieval-label">Product RAG</span>
+                <span class="retrieval-value">36.5%</span>
+                <span class="retrieval-unit">recall@3</span>
+                <span class="retrieval-detail">MRR 0.656 · hit_rate 78.1%</span>
+                <span class="retrieval-detail">32 queries · FAISS + MySQL</span>
+            </div>
+            <div class="retrieval-card structured">
+                <span class="retrieval-icon">⚡</span>
+                <span class="retrieval-label">Structured</span>
+                <span class="retrieval-value">L0 SQL</span>
+                <span class="retrieval-unit">direct lookup</span>
+                <span class="retrieval-detail">Order · Cart · Purchase History</span>
+                <span class="retrieval-detail">Zero LLM · instant</span>
+            </div>
+        </div>
+        <div class="retrieval-index">
+            <span class="retrieval-icon">📦</span>
+            Index: 41 products · 7 categories · FAISS · Chinese only
+        </div>
+    </section>
 
     <!-- Layer 1: Runtime Health -->
     <section class="console-section health-bar" id="healthBar">

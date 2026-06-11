@@ -146,7 +146,7 @@ def _classify_intent(query: str) -> dict:
 # Layer 2 — Context Resolver (fills missing args, NEVER changes intent)
 # ════════════════════════════════════════════════════════════════════
 
-def _has_strong_intent(query: str) -> bool:
+def has_strong_intent(query: str) -> bool:
     """True if query has commerce keywords → user changed topic, don't force old slots."""
     commerce_kw = _KEYWORDS.get("commerce", set())
     query_lower = query.lower()
@@ -160,7 +160,7 @@ def _needs_resolve(query: str, session: object | None, raw_intent: str) -> bool:
     pending_slots = getattr(session, "pending_slots", None)
     if not pending_slots:
         return False
-    if _has_strong_intent(query):
+    if has_strong_intent(query):
         return False  # user changed topic
     return len(query.strip()) < 10
 

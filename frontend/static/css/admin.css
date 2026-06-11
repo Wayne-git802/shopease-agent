@@ -1,38 +1,37 @@
 /* ═══════════════════════════════════════════════════════════════
-   ShopEase Admin Stylesheet
-   Clean white style, consistent with the main ShopEase theme.
+   ShopEase Admin Stylesheet — Warm Luxury
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── Container ───────────────────────────────────────────────── */
+/* ── Container ── */
 .admin-container {
     max-width: 1200px;
     margin: 0 auto;
     padding: 0 16px 80px;
-    background: #fff;
 }
 
-/* ── Banner ──────────────────────────────────────────────────── */
+/* ── Banner ── */
 .admin-banner {
-    background: #f9fafb;
+    background: var(--bg, #faf8f5);
     padding: 24px;
     margin: 0 -16px 24px;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--border, #e8e0d5);
 }
 
 .admin-title {
+    font-family: var(--font-display, 'Cormorant Garamond', serif);
     font-size: 1.5rem;
     font-weight: 700;
-    color: #1e293b;
+    color: var(--text, #2d2418);
     margin-bottom: 4px;
 }
 
 .admin-breadcrumb {
     font-size: 0.85rem;
-    color: #94a3b8;
+    color: var(--text-light, #b8a99a);
 }
 
 .admin-breadcrumb a {
-    color: #2563eb;
+    color: var(--primary, #b8860b);
     text-decoration: none;
 }
 
@@ -40,7 +39,7 @@
     text-decoration: underline;
 }
 
-/* ── Stat Cards ──────────────────────────────────────────────── */
+/* ── Stat Cards ── */
 .stat-cards {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -49,62 +48,65 @@
 }
 
 .stat-card {
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
+    background: var(--card-bg, #fff);
+    border: 1px solid var(--border, #e8e0d5);
+    border-radius: var(--radius, 10px);
     padding: 20px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-    transition: box-shadow 0.2s ease;
+    box-shadow: var(--shadow-sm, 0 1px 2px rgba(45,36,24,0.04));
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .stat-card:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--shadow-gold, 0 4px 20px rgba(184,134,11,0.15));
+    transform: translateY(-1px);
 }
 
 .stat-label {
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--text-muted, #8c7b6e);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 8px;
 }
 
 .stat-value {
+    font-family: var(--font-display, 'Cormorant Garamond', serif);
     font-size: 28px;
     font-weight: 700;
-    color: #1e293b;
+    color: var(--text, #2d2418);
 }
 
-/* ── Alert Banner ────────────────────────────────────────────── */
+/* ── Alert Banner ── */
 .alert-banner {
-    background: #fef3c7;
-    border: 1px solid #fcd34d;
+    background: var(--primary-light, #fdf8ed);
+    border: 1px solid rgba(197,146,62,0.25);
     border-radius: 8px;
     padding: 12px 20px;
     margin-bottom: 24px;
-    color: #92400e;
+    color: var(--primary, #b8860b);
     font-size: 0.9rem;
     font-weight: 500;
 }
 
-/* ── Section Card ────────────────────────────────────────────── */
+/* ── Section Card ── */
 .section-card {
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
+    background: var(--card-bg, #fff);
+    border: 1px solid var(--border, #e8e0d5);
+    border-radius: var(--radius, 10px);
     padding: 24px;
     margin-bottom: 24px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    box-shadow: var(--shadow-sm, 0 1px 2px rgba(45,36,24,0.04));
 }
 
 .section-title {
-    font-size: 1.1rem;
+    font-family: var(--font-display, 'Cormorant Garamond', serif);
+    font-size: 1.15rem;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--text, #2d2418);
     margin-bottom: 16px;
 }
 
-/* ── Data Table ──────────────────────────────────────────────── */
+/* ── Data Table ── */
 .data-table {
     width: 100%;
     border-collapse: collapse;
@@ -112,33 +114,33 @@
 }
 
 .data-table thead {
-    background: #f8fafc;
+    background: var(--bg, #faf8f5);
 }
 
 .data-table th {
     text-align: left;
     padding: 10px 12px;
     font-weight: 600;
-    color: #64748b;
+    color: var(--text-muted, #8c7b6e);
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    border-bottom: 2px solid #e2e8f0;
+    border-bottom: 2px solid var(--border, #e8e0d5);
 }
 
 .data-table td {
     padding: 12px;
-    border-bottom: 1px solid #f1f5f9;
-    color: #1e293b;
+    border-bottom: 1px solid var(--border-light, #f5efe6);
+    color: var(--text, #2d2418);
     vertical-align: middle;
 }
 
 .data-table tbody tr:hover {
-    background: #f8fafc;
+    background: var(--primary-light, #fdf8ed);
 }
 
 .data-table td a {
-    color: #2563eb;
+    color: var(--primary, #b8860b);
     text-decoration: none;
 }
 
@@ -147,12 +149,12 @@
 }
 
 .text-muted {
-    color: #94a3b8;
+    color: var(--text-light, #b8a99a);
     text-align: center;
     padding: 24px !important;
 }
 
-/* ── Status Tags ─────────────────────────────────────────────── */
+/* ── Status Tags ── */
 .status-tag {
     display: inline-block;
     padding: 3px 10px;
@@ -162,89 +164,62 @@
 }
 
 .status-available,
-.status-approved {
-    background: #dcfce7;
-    color: #166534;
-}
-
-.status-pending {
-    background: #fef3c7;
-    color: #92400e;
-}
-
+.status-approved { background: #ebf5eb; color: #3b5e3b; }
+.status-pending { background: var(--primary-light, #fdf8ed); color: #8b6914; }
 .status-suspended,
 .status-rejected,
 .status-cancelled,
-.status-refunded {
-    background: #fee2e2;
-    color: #991b1b;
-}
+.status-refunded { background: #faf0ef; color: #8b3734; }
+.status-paid { background: #fdf8ed; color: #8b6914; }
+.status-shipped { background: #f5efe6; color: #6b4c20; }
+.status-completed { background: #ebf5eb; color: #3b5e3b; }
+.status-disabled { background: var(--border-light, #f5efe6); color: var(--text-muted, #8c7b6e); }
 
-.status-paid {
-    background: #dbeafe;
-    color: #1e40af;
-}
-
-.status-shipped {
-    background: #e0e7ff;
-    color: #3730a3;
-}
-
-.status-completed {
-    background: #dcfce7;
-    color: #166534;
-}
-
-.status-disabled {
-    background: #f3f4f6;
-    color: #6b7280;
-}
-
-/* ── Filter Bar ──────────────────────────────────────────────── */
+/* ── Filter Bar ── */
 .filter-bar {
     display: flex;
     align-items: center;
     gap: 12px;
     margin-bottom: 16px;
     font-size: 0.9rem;
-    color: #64748b;
+    color: var(--text-muted, #8c7b6e);
 }
 
 .filter-bar select {
     padding: 6px 12px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border, #e8e0d5);
     border-radius: 8px;
     font-size: 0.9rem;
-    color: #1e293b;
-    background: #fff;
+    color: var(--text, #2d2418);
+    background: var(--card-bg, #fff);
     cursor: pointer;
 }
 
 .filter-bar select:focus {
     outline: none;
-    border-color: #2563eb;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    border-color: var(--accent, #c5923e);
+    box-shadow: 0 0 0 3px rgba(197,146,62,0.1);
 }
 
-/* ── Toggle Button ───────────────────────────────────────────── */
+/* ── Toggle Button ── */
 .btn-toggle {
     padding: 5px 14px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border, #e8e0d5);
     border-radius: 6px;
-    background: #fff;
-    color: #64748b;
+    background: var(--card-bg, #fff);
+    color: var(--text-muted, #8c7b6e);
     font-size: 0.8rem;
     cursor: pointer;
     transition: all 0.15s ease;
 }
 
 .btn-toggle:hover {
-    border-color: #2563eb;
-    color: #2563eb;
-    background: #eff6ff;
+    border-color: var(--accent, #c5923e);
+    color: var(--primary, #b8860b);
+    background: var(--primary-light, #fdf8ed);
 }
 
-/* ── Health Grid ─────────────────────────────────────────────── */
+/* ── Health Grid ── */
 .health-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -254,20 +229,21 @@
 .health-item {
     text-align: center;
     padding: 16px;
-    background: #f8fafc;
+    background: var(--border-light, #f5efe6);
     border-radius: 8px;
 }
 
 .health-value {
+    font-family: var(--font-display, 'Cormorant Garamond', serif);
     font-size: 1.5rem;
     font-weight: 700;
-    color: #1e293b;
+    color: var(--text, #2d2418);
     margin-bottom: 4px;
 }
 
 .health-label {
     font-size: 0.8rem;
-    color: #94a3b8;
+    color: var(--text-muted, #8c7b6e);
 }
 
 /* ── Responsive ──────────────────────────────────────────────── */
@@ -335,28 +311,28 @@
     min-width: 36px;
     height: 36px;
     padding: 0 10px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--border, #e8e0d5);
     border-radius: 8px;
-    color: #374151;
+    color: var(--text, #2d2418);
     text-decoration: none;
     font-size: 0.85rem;
     font-weight: 500;
-    background: #fff;
+    background: var(--card-bg, #fff);
     transition: all 0.15s ease;
     user-select: none;
 }
 .pagination-btn:hover {
-    background: #f3f4f6;
-    border-color: #d1d5db;
-    color: #111827;
+    background: var(--border-light, #f5efe6);
+    border-color: var(--accent, #c5923e);
+    color: var(--text, #2d2418);
 }
 .pagination-btn.active {
-    background: #2563eb;
-    border-color: #2563eb;
+    background: var(--text, #2d2418);
+    border-color: var(--text, #2d2418);
     color: #fff;
     font-weight: 600;
     pointer-events: none;
-    box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
+    box-shadow: 0 1px 3px rgba(45,36,24,0.2);
 }
 .pagination-btn.disabled {
     color: #d1d5db;
