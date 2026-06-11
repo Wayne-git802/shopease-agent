@@ -72,8 +72,9 @@ class Retriever(RetrieverProtocol):
         """Auto-build FAISS index from active products in DB."""
         _ensure_django()
         from products.models import Product
+        from agents.commerce.queries.product_query import ProductQuery
 
-        products = Product.objects.filter(is_active=True).values_list('id', 'name', 'description')
+        products = ProductQuery.purchasable().values_list('id', 'name', 'description')
         ids = [pid for pid, _, _ in products]
         texts = [f"{name} {desc}" if desc else name for _, name, desc in products]
         if ids:
@@ -85,13 +86,14 @@ class Retriever(RetrieverProtocol):
         _ensure_django()
         from products.models import Product
         from django.db.models import Q
+        from agents.commerce.queries.product_query import ProductQuery
 
         words = query.split()
         q_filter = Q()
         for w in words:
             q_filter |= Q(name__icontains=w) | Q(description__icontains=w)
 
-        products = Product.objects.filter(q_filter, is_active=True)[:limit]
+        products = ProductQuery.purchasable().filter(q_filter)[:limit]
         # Score = 1.0 for exact name match, 0.5 for partial
         results = []
         for p in products:
@@ -129,10 +131,11 @@ class Retriever(RetrieverProtocol):
 
         _ensure_django()
         from products.models import Product
+        from agents.commerce.queries.product_query import ProductQuery
 
         score_map = dict(fused)
         ids = [pid for pid, _ in fused]
-        db_products = Product.objects.filter(id__in=ids, is_active=True)
+        db_products = ProductQuery.purchasable().filter(id__in=ids)
 
         refs = []
         for p in db_products:

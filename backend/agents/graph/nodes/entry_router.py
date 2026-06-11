@@ -1,16 +1,16 @@
 """
-entry_router node — LangGraph dispatcher + execution-context reference resolution.
+entry_router node — LangGraph dispatcher with ResolvedReference dispatch.
 
 Dispatch priority:
-  0. Reference resolution — resolve "第一个"/"第二个" BEFORE dispatch
+  0. ResolvedReference — read _resolved_ref from parallel_results, clarify or
+     direct-dispatch via ACTION_TO_CAPABILITY (PURCHASE→order, ADD_TO_CART→cart,
+     VIEW_DETAIL→search)
   1. Preset intent from state_router
   2. ConstraintParser override (search_plan intent)
   3. Session memory (follow-up answer to clarify question)
   4. Default → "chat"
 
-Phase 6 fix: reference resolution runs FIRST, before any dispatch path.
-If resolved, preset_intent is set to the last known intent so downstream
-nodes receive the right routing context.
+PR4: Path 0 upgraded from _try_resolve_reference to ResolvedReference.
 """
 
 import logging
@@ -32,12 +32,56 @@ def entry_router(state: AgentState) -> Command:
     session_id = state.session_id or ""
 
     # ═══════════════════════════════════════════════════════════
-    # Path 0: Reference resolution (BEFORE all dispatch paths)
+    # Path 0: ResolvedReference dispatch (runs BEFORE all other paths)
     # ═══════════════════════════════════════════════════════════
-    _try_resolve_reference(state, query, session_id)
+    resolved_ref = state.parallel_results.get("_resolved_ref")
+    if resolved_ref is not None:
+        from agents.graph.routing.reference_resolver import (
+            ResolvedReference, ReferenceAction, ClarificationReason,
+        )
+
+        # Clarification needed
+        if resolved_ref.requires_clarification:
+            reason = resolved_ref.clarification_reason
+            if reason == ClarificationReason.ACTION_MISSING:
+                msg = f"已找到「{resolved_ref.product_name}」，你想：\n1. 查看详情\n2. 加入购物车\n3. 立即购买"
+            elif reason == ClarificationReason.PRODUCT_NOT_FOUND:
+                msg = f"上次只展示了 {resolved_ref.source_index} 个以内的商品，请重新选择。"
+            else:
+                msg = "你想查看详情、加购物车还是购买？"
+            return Command(goto="chat", update={
+                "intent": "chat",
+                "confidence": 0.9,
+                "routing_method": "reference_clarify",
+                "current_node": "entry_router",
+                "ui_message": msg,
+                "parallel_results": {
+                    **state.parallel_results,
+                    "_clarify_reference": True,
+                },
+            })
+
+        # Direct action dispatch
+        if resolved_ref.action is not None:
+            ACTION_TO_CAPABILITY = {
+                ReferenceAction.PURCHASE.value: ("order", "purchase"),
+                ReferenceAction.ADD_TO_CART.value: ("cart", "cart"),
+                ReferenceAction.VIEW_DETAIL.value: ("search", "view_detail"),
+            }
+            entry = ACTION_TO_CAPABILITY.get(resolved_ref.action.value)
+            if entry:
+                goto_node, capability_label = entry
+                return Command(goto=goto_node, update={
+                    "intent": goto_node,
+                    "confidence": 0.95,
+                    "routing_method": "reference_action",
+                    "current_node": "entry_router",
+                    "ui_message": f"已识别「{resolved_ref.action.value}」操作",
+                    "parallel_results": state.parallel_results,
+                })
 
     # Base update — always include parallel_results so LangGraph
-    # preserves in-place mutations made by _try_resolve_reference.
+    # preserves any in-place mutations.
     base_update = {
         "current_node": "entry_router",
         "parallel_results": state.parallel_results,
@@ -92,72 +136,3 @@ def entry_router(state: AgentState) -> Command:
     })
 
 
-# ═══════════════════════════════════════════════════════════════
-# Reference resolution (Path 0)
-# ═══════════════════════════════════════════════════════════════
-
-def _try_resolve_reference(state: AgentState, query: str, session_id: str) -> None:
-    """Resolve product references BEFORE dispatch.  Sets _resolved_product_id
-    and preset_intent on state so dispatch paths route correctly."""
-    if not session_id or not query.strip():
-        return
-    if not _has_reference(query):
-        return
-
-    import django
-    django.setup()
-    from agents.models import AgentConversation
-    from agents.graph.session_memory import get_conv_state
-
-    # 1. Look up displayed products from last assistant message
-    msg = (
-        AgentConversation.objects
-        .filter(session_id=session_id, role="assistant")
-        .order_by("-created_at")
-        .first()
-    )
-    if not msg or not msg.metadata:
-        return
-
-    products = []
-    for b in msg.metadata.get("blocks", []):
-        if b.get("type") == "product_card":
-            products = b.get("data", {}).get("products", [])
-            break
-    if not products:
-        return
-
-    # 2. Resolve index
-    import re
-    m = re.search(r'第\s*([\d一二两三四五六七八九十]+)\s*[个款]', query)
-    if not m:
-        return
-
-    num_str = m.group(1)
-    NUM_MAP = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
-               "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
-    idx = NUM_MAP.get(num_str, int(num_str) if num_str.isdigit() else 1) - 1
-    if idx < 0 or idx >= len(products):
-        logger.debug("Reference index %d out of range (products=%d)", idx, len(products))
-        return
-
-    p = products[idx]
-    state.parallel_results["_resolved_product_id"] = p.get("product_id", p.get("id", 0))
-    state.parallel_results["_resolved_product_name"] = p.get("name", p.get("product_name", ""))
-
-    # 3. Recover last intent so dispatch knows where to go
-    cs = get_conv_state(session_id)
-    last_intent = cs.last_intent if cs else "search"
-    if last_intent not in VALID_INTENTS:
-        last_intent = "search"
-    state.control_context["preset_intent"] = last_intent
-
-    logger.debug("Resolved reference '%s' → id=%s name=%s intent=%s",
-                 query, state.parallel_results["_resolved_product_id"],
-                 state.parallel_results["_resolved_product_name"], last_intent)
-
-
-def _has_reference(query: str) -> bool:
-    """True if query contains an index-based product reference."""
-    import re
-    return bool(re.search(r'第\s*[一二两三四五六七八九十\d]+\s*[个款]', query))

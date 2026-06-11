@@ -13,6 +13,8 @@ import logging
 import time
 from typing import Any, Optional
 
+from agents.commerce.queries.product_query import ProductQuery
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,7 +76,7 @@ class RecommendEngine:
             from products.models import Product
 
             products = (
-                Product.objects.filter(is_active=True)
+                ProductQuery.purchasable()
                 .with_sales_data()
                 .filter(_review_count__gt=0)
                 .order_by('-_review_count', '-_average_rating')
@@ -83,7 +85,7 @@ class RecommendEngine:
             # If no reviewed products yet, return newest active products
             if not products:
                 products = (
-                    Product.objects.filter(is_active=True)
+                    ProductQuery.purchasable()
                     .order_by('-created_at')
                 )[:limit]
 
@@ -114,8 +116,7 @@ class RecommendEngine:
                 return []
 
             similar = (
-                Product.objects.filter(
-                    is_active=True,
+                ProductQuery.purchasable().filter(
                     category=source.category,
                 )
                 .exclude(id=product_id)
@@ -166,8 +167,7 @@ class RecommendEngine:
             if user_category_ids:
                 slot = max(1, int(limit * 0.4))
                 qs = (
-                    Product.objects.filter(
-                        is_active=True,
+                    ProductQuery.purchasable().filter(
                         category_id__in=user_category_ids,
                     )
                     .with_sales_data()
@@ -186,7 +186,7 @@ class RecommendEngine:
             popular_slot = limit - len(results)
             if popular_slot > 0:
                 qs = (
-                    Product.objects.filter(is_active=True)
+                    ProductQuery.purchasable()
                     .with_sales_data()
                     .filter(_review_count__gt=0)
                     .order_by('-_review_count', '-_average_rating')
@@ -202,7 +202,7 @@ class RecommendEngine:
             if len(results) < limit:
                 fallback_slot = limit - len(results)
                 qs = (
-                    Product.objects.filter(is_active=True)
+                    ProductQuery.purchasable()
                     .exclude(id__in=seen_ids)
                     .order_by('-created_at')
                 )[:fallback_slot]
@@ -245,24 +245,24 @@ class RecommendEngine:
 
         # ── fetch candidate pool ──────────────────────────────
         if strategy == "popular":
-            candidates = Product.objects.filter(is_active=True).with_sales_data()[:50]
+            candidates = ProductQuery.purchasable().with_sales_data()[:50]
         elif strategy == "cold_start":
             popular = set(
-                Product.objects.filter(is_active=True)
+                ProductQuery.purchasable()
                 .with_sales_data()
                 .filter(_review_count__gt=0)
                 .order_by('-_review_count')
                 .values_list('id', flat=True)[:30]
             )
             newest = set(
-                Product.objects.filter(is_active=True)
+                ProductQuery.purchasable()
                 .order_by('-created_at')
                 .values_list('id', flat=True)[:20]
             )
             all_ids = list(dict.fromkeys(list(popular) + list(newest)))
             candidates = Product.objects.filter(id__in=all_ids).with_sales_data()
         else:
-            candidates = Product.objects.filter(is_active=True).with_sales_data()[:60]
+            candidates = ProductQuery.purchasable().with_sales_data()[:60]
 
         # ── score & rank ──────────────────────────────────────
         scored = []

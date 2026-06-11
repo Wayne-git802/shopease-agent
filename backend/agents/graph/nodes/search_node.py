@@ -122,6 +122,7 @@ def _execute_structured_sort(plan: SearchPlan, limit: int = 10) -> list[ProductR
     import django
     django.setup()
     from products.models import Product
+    from agents.commerce.queries.product_query import ProductQuery
 
     sort_field = plan.sort_by or "price"
     direction = plan.direction or "desc"
@@ -134,7 +135,7 @@ def _execute_structured_sort(plan: SearchPlan, limit: int = 10) -> list[ProductR
     }
     actual_field = ANNOTATION_FIELDS.get(sort_field, sort_field)
 
-    qs = Product.objects.filter(is_active=True)
+    qs = ProductQuery.purchasable()
 
     # Apply category filter
     if plan.category_filter:
@@ -178,32 +179,36 @@ def search_node(state: AgentState) -> AgentState:
     import django
     django.setup()
 
-    # ── Fast path: resolved product reference (e.g. "第一个") ──
-    resolved_pid = state.parallel_results.get("_resolved_product_id")
-    if resolved_pid:
-        from products.models import Product
-        try:
-            p = Product.objects.get(id=resolved_pid)
-            pr = ProductRef(
-                id=p.id, name=p.name, price=float(p.price or 0),
-                category=p.category.name if p.category else "",
-                relevance=1.0,
-            )
-            state.retrieved_products = [pr]
-            state.tool_results["products"] = [{
-                "product_id": p.id, "product_name": p.name, "name": p.name,
-                "price": str(p.price), "category_name": p.category.name if p.category else "",
-                "score": 1.0,
-            }]
-            state.current_node = "search"
-            state.steps_done.append("search")
-            state.ui_message = f"已选择：{p.name}"
-            state.parallel_results["_search_phase_label"] = "引用解析"
-            state.parallel_results["_search_phase_detail"] = f"用户选择了第{resolved_pid}号商品"
-            return state
-        except Product.DoesNotExist:
-            logger.warning("Resolved product_id=%s not found in DB", resolved_pid)
-            # Fall through to normal search
+    # ── Fast path: resolved product reference (VIEW_DETAIL only) ──
+    resolved_ref = state.parallel_results.get("_resolved_ref")
+    if resolved_ref is not None:
+        from agents.graph.routing.reference_resolver import ReferenceAction
+        if resolved_ref.action == ReferenceAction.VIEW_DETAIL:
+            import django as _django_fp
+            _django_fp.setup()
+            from agents.commerce.queries.product_query import ProductQuery
+            try:
+                p = ProductQuery.purchasable().get(id=resolved_ref.product_id)
+                from ..contracts.product import ProductRef as _PR
+                pr = _PR(
+                    id=p.id, name=p.name, price=float(p.price or 0),
+                    category=p.category.name if p.category else "",
+                    relevance=1.0,
+                )
+                state.retrieved_products = [pr]
+                state.tool_results["products"] = [{
+                    "product_id": p.id, "product_name": p.name, "name": p.name,
+                    "price": str(p.price), "category_name": p.category.name if p.category else "",
+                    "score": 1.0,
+                }]
+                state.current_node = "search"
+                state.steps_done.append("search")
+                state.ui_message = f"已选择：{p.name}"
+                state.parallel_results["_search_phase_label"] = "引用详情"
+                state.parallel_results["_search_phase_detail"] = f"查看商品：{p.name}"
+                return state
+            except Exception:
+                logger.warning("VIEW_DETAIL fast path failed for product_id=%s", resolved_ref.product_id)
 
     start = time.time()
 

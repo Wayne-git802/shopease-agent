@@ -91,12 +91,17 @@ def _dialogue_merge(ctx: PipelineContext, conv_state) -> None:
     if not conv_state or not conv_state.dialogue.expects_followup:
         return
 
+    # ── 1. Reference resolution (BEFORE intent check) ──
+    ref = _try_resolve(ctx, conv_state)
+    if ref is not None:
+        conv_state.dialogue.expects_followup = False
+        ctx.state.parallel_results["_resolved_ref"] = ref
+        return
+
+    # ── 2. Fall back to existing logic ──
     if has_strong_intent(ctx.query):
         conv_state.dialogue.expects_followup = False
     elif _is_ambiguous(ctx.query):
-        # Reference-based follow-up ("第一个", "换一个").
-        # Merge text only — reference resolution happens in entry_router
-        # (execution layer), NOT in routing.
         conv_state.dialogue.expects_followup = False
         ctx.query = f"{conv_state.dialogue.last_user_query} {ctx.query}"
         conv_state.dialogue.injected_slot = ctx.query
@@ -107,20 +112,41 @@ def _dialogue_merge(ctx: PipelineContext, conv_state) -> None:
 
 
 def _is_ambiguous(query: str) -> bool:
-    """True when query is a short reference/continuation without content.
-    e.g. '换一个', '还有吗', '别的', '第一个', '不太喜欢'."""
-    REFERENCE_QUERIES = {
-        "换一个", "还有吗", "别的", "别的呢", "再看看", "不太喜欢", "不喜欢",
-        "就这个", "就它", "这个", "那个",
-    }
-    q = query.strip()
-    if q in REFERENCE_QUERIES:
-        return True
-    # Numeric index references: "第一个", "第二个", "第3个"
-    import re
-    if re.match(r'^第\s*[一二两三四五六七八九十\d]+\s*[个款]$', q):
-        return True
-    return False
+    """Deprecated — reference resolution now handled by reference_resolver.
+    Kept for backward compatibility. Will be removed in next PR."""
+    from .reference_resolver import resolve_reference, ReferenceContext
+    ref = resolve_reference(query, ReferenceContext())
+    return ref.product_id is not None or ref.action is not None
+
+
+def _try_resolve(ctx: PipelineContext, conv_state) -> "ResolvedReference | None":
+    """Try to resolve a product reference. Returns None if no reference."""
+    from .reference_resolver import (
+        resolve_reference, ReferenceContext, ProductReference,
+    )
+    from .affinity import build_action_context
+
+    # Build ReferenceContext from affinity (reads product_card blocks from DB)
+    actx = build_action_context(ctx.session_id) if ctx.session_id else None
+    products: list[ProductReference] = []
+    if actx:
+        for block in actx.active_blocks:
+            if block.type == "product_card":
+                for p in block.data.get("products", []):
+                    pid = p.get("product_id", p.get("id", 0))
+                    pname = p.get("product_name", p.get("name", ""))
+                    products.append(ProductReference(product_id=pid, product_name=pname))
+                break
+
+    ref_ctx = ReferenceContext(
+        products=products,
+        last_query=conv_state.dialogue.last_user_query if conv_state else "",
+    )
+
+    resolved = resolve_reference(ctx.query, ref_ctx)
+    if resolved.product_id is None and resolved.action is None:
+        return None  # No reference detected
+    return resolved
 
 
 # ── Signal fusion ───────────────────────────────────────────────
