@@ -63,20 +63,17 @@ def entry_router(state: AgentState) -> Command:
 
         # Direct action dispatch
         if resolved_ref.action is not None:
-            ACTION_TO_CAPABILITY = {
-                ReferenceAction.PURCHASE.value: ("order", "purchase"),
-                ReferenceAction.ADD_TO_CART.value: ("cart", "cart"),
-                ReferenceAction.VIEW_DETAIL.value: ("search", "view_detail"),
-            }
-            entry = ACTION_TO_CAPABILITY.get(resolved_ref.action.value)
-            if entry:
-                goto_node, capability_label = entry
-                return Command(goto=goto_node, update={
-                    "intent": goto_node,
+            if resolved_ref.action == ReferenceAction.PURCHASE:
+                return _dispatch_purchase(state, resolved_ref)
+            if resolved_ref.action == ReferenceAction.ADD_TO_CART:
+                return _dispatch_cart(state, resolved_ref)
+            if resolved_ref.action == ReferenceAction.VIEW_DETAIL:
+                return Command(goto="search", update={
+                    "intent": "search",
                     "confidence": 0.95,
                     "routing_method": "reference_action",
                     "current_node": "entry_router",
-                    "ui_message": f"已识别「{resolved_ref.action.value}」操作",
+                    "ui_message": f"查看「{resolved_ref.product_name}」详情",
                     "parallel_results": state.parallel_results,
                 })
 
@@ -133,6 +130,62 @@ def entry_router(state: AgentState) -> Command:
         "intent": "chat", "confidence": 0.5,
         "routing_method": "default",
         "ui_message": "你好！有什么可以帮你的？",
+    })
+
+
+# ═══════════════════════════════════════════════════════════════
+# Reference dispatch helpers — call domain agents directly
+# ═══════════════════════════════════════════════════════════════
+
+
+def _dispatch_purchase(state: AgentState, ref) -> Command:
+    """Call PurchaseAgent directly with resolved reference, bypass graph."""
+    import django; django.setup()
+    from agents.purchase.agent import _run as purchase_run
+
+    result = purchase_run(
+        query=state.user_query or "",
+        user_id=state.user_id,
+        session_id=state.session_id or "",
+        resolved_ref=ref,
+    )
+    return Command(goto="chat", update={
+        "intent": "purchase",
+        "confidence": 0.95,
+        "routing_method": "reference_action",
+        "current_node": "entry_router",
+        "ui_message": result.get("reply", result.get("message", "")),
+        "final_response": result.get("reply", ""),
+        "tool_results": {"purchase": result},
+        "parallel_results": state.parallel_results,
+    })
+
+
+def _dispatch_cart(state: AgentState, ref) -> Command:
+    """Call CartAgent directly with resolved reference, bypass graph."""
+    import django; django.setup()
+    from agents.cart.agent import CartAgent
+    from agents.graph.pipeline import AgentContext, AgentResult
+
+    agent = CartAgent()
+    agent_ctx = AgentContext(
+        query=f"add {ref.product_id}",
+        user_id=state.user_id,
+        session_id=state.session_id or "",
+    )
+    result: AgentResult = agent.execute(agent_ctx)
+    if result.status == "success" and result.response:
+        reply = result.response.get("reply", "已加入购物车")
+    else:
+        reply = "加入购物车失败，请重试"
+    return Command(goto="chat", update={
+        "intent": "cart",
+        "confidence": 0.95,
+        "routing_method": "reference_action",
+        "current_node": "entry_router",
+        "ui_message": reply,
+        "final_response": reply,
+        "parallel_results": state.parallel_results,
     })
 
 

@@ -34,6 +34,7 @@ def _run(
     user_id: int | None = None,
     session_id: str = "",
     display_id: str = "",
+    resolved_ref: object = None,  # ResolvedReference from routing layer
 ) -> dict:
     """Internal implementation.  External callers use PurchaseAgent.execute()."""
 
@@ -53,16 +54,24 @@ def _run(
     if parsed.intent == PurchaseIntent.OTHER:
         return {"_fallback": True}
 
-    # 4. Resolve product reference (use ReferenceResolver)
-    from agents.graph.reference_resolver import resolve as resolve_ref
-
-    ref = resolve_ref(
-        session_id=session_id,
-        display_id=display_id,
-        query=query,
-        reference_type=parsed.reference_type or "",
-        reference_value=parsed.reference_value,
-    )
+    # 4. Resolve product reference — prefer routing layer's resolved ref
+    from agents.graph.routing.reference_resolver import ResolvedReference as RoutingRef
+    if resolved_ref is not None and getattr(resolved_ref, 'product_id', 0):
+        ref = ResolvedReference(
+            source="routing",
+            product_id=resolved_ref.product_id,
+            confidence=0.95,
+            name=getattr(resolved_ref, 'product_name', ''),
+        )
+    else:
+        from agents.graph.reference_resolver import resolve as resolve_ref
+        ref = resolve_ref(
+            session_id=session_id,
+            display_id=display_id,
+            query=query,
+            reference_type=parsed.reference_type or "",
+            reference_value=parsed.reference_value,
+        )
     if not ref.source or not ref.product_id:
         return build_error("请先搜索或浏览商品，然后告诉我买第几个")
 
