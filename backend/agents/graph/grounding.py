@@ -105,17 +105,22 @@ def ground(query: str) -> dict[str, Any]:
             slots["descriptor"] = token
 
     # Budget extraction
-    m = re.search(r"(\d+)\s*(?:以内|以下|之内)", query)
+    # "X以内/以下/之内" → upper bound
+    m = re.search(r"(\d+)\s*元?\s*(?:以内|以下|之内)", query)
     if m:
         slots["budget"] = (0, int(m.group(1)))
-    else:
+    # "X以上/以外/及以上" → lower bound (no upper bound)
+    elif re.search(r"(\d+)\s*元?\s*(?:以上|之外|以外|及以上)", query):
+        m = re.search(r"(\d+)\s*元?\s*(?:以上|之外|以外|及以上)", query)
+        slots["budget"] = (int(m.group(1)), None)
+    # "X-Y" range
+    elif re.search(r"(\d+)\s*[-–]\s*(\d+)", query):
         m = re.search(r"(\d+)\s*[-–]\s*(\d+)", query)
-        if m:
-            slots["budget"] = (int(m.group(1)), int(m.group(2)))
-        else:
-            m = re.search(r"(\d+)元?", query)
-            if m:
-                slots["budget"] = (0, int(m.group(1)))
+        slots["budget"] = (int(m.group(1)), int(m.group(2)))
+    # "X元" / "X块" — treat as upper bound
+    elif re.search(r"(\d+)\s*[元块]", query):
+        m = re.search(r"(\d+)\s*[元块]", query)
+        slots["budget"] = (0, int(m.group(1)))
 
     # Recipient
     for cn in ("女朋友", "男朋友", "妈妈", "爸爸", "爸妈", "朋友",

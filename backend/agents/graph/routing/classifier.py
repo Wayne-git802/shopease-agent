@@ -140,7 +140,7 @@ def _is_ambiguous(query: str) -> bool:
     Kept for backward compatibility. Will be removed in next PR."""
     from .reference_resolver import resolve_reference, ReferenceContext
     ref = resolve_reference(query, ReferenceContext())
-    return ref.product_id is not None or ref.action is not None
+    return bool(ref.target.product_ids) or ref.action is not None
 
 
 def _try_resolve(ctx: PipelineContext, conv_state) -> "ResolvedReference | None":
@@ -168,22 +168,20 @@ def _try_resolve(ctx: PipelineContext, conv_state) -> "ResolvedReference | None"
     )
 
     resolved = resolve_reference(ctx.query, ref_ctx)
-    if resolved.product_id is None and resolved.action is None:
+    if not resolved.target.product_ids and resolved.action is None:
         return None  # No reference detected
     return resolved
 
 
 def _infer_action_from_clarification_reply(query: str) -> "ReferenceAction | None":
     """从用户对澄清的回复中推断 action。只处理明确的关键词。"""
+    from .reference_resolver import ReferenceAction
     q = query.strip()
     if any(kw in q for kw in ["购买", "下单", "买", "立即购买"]):
-        from .reference_resolver import ReferenceAction
         return ReferenceAction.PURCHASE
     if any(kw in q for kw in ["加入购物车", "加购", "加购物车"]):
-        from .reference_resolver import ReferenceAction
         return ReferenceAction.ADD_TO_CART
     if any(kw in q for kw in ["查看", "看看", "详情", "介绍"]):
-        from .reference_resolver import ReferenceAction
         return ReferenceAction.VIEW_DETAIL
     return None
 

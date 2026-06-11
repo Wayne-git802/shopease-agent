@@ -114,14 +114,25 @@ def normalize_query(query: str) -> str:
 
 # ── Budget band parsing ────────────────────────────────────────
 
-def parse_budget_band(amount: int) -> str:
-    """Map a number to a budget band label."""
-    if amount <= 500:
-        return "0-500"
-    elif amount <= 1500:
-        return "500-1500"
+def parse_budget_band(amount: int, is_lower_bound: bool = False) -> str:
+    """Map a number to a budget band label.
+
+    is_lower_bound=False: "X元以内" style → amount is upper bound.
+    is_lower_bound=True:  "X元以上" style → amount is lower bound.
+    """
+    if is_lower_bound:
+        if amount >= 1500:
+            return "1500+"
+        elif amount >= 500:
+            return "500+"
+        return "0+"
     else:
-        return "1500+"
+        if amount <= 500:
+            return "0-500"
+        elif amount <= 1500:
+            return "500-1500"
+        else:
+            return "1500+"
 
 
 # ── SearchPlan v2 ──────────────────────────────────────────────

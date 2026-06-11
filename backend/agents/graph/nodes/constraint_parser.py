@@ -196,11 +196,17 @@ def _extract_budget(normalized: str, original: str) -> Optional[str]:
         amt = int(within_match.group(1))
         return parse_budget_band(amt)
 
-    # Pattern: "500以内" / "500以下"
-    cn_match = re.search(r"(\d+)\s*(?:以内|以下|之内)", normalized)
+    # Pattern: "500以内" / "500元以下" / "500之内"
+    cn_match = re.search(r"(\d+)\s*元?\s*(?:以内|以下|之内)", normalized)
     if cn_match:
         amt = int(cn_match.group(1))
         return parse_budget_band(amt)
+
+    # Pattern: "500以上" / "500元以上" / "500及以上" — lower bound
+    above_match = re.search(r"(\d+)\s*元?\s*(?:以上|及以上|之外|以外)", normalized)
+    if above_match:
+        amt = int(above_match.group(1))
+        return parse_budget_band(amt, is_lower_bound=True)
 
     return None
 

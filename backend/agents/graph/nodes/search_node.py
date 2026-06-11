@@ -149,6 +149,10 @@ def _execute_structured_sort(plan: SearchPlan, limit: int = 10) -> list[ProductR
             qs = qs.filter(price__gte=500, price__lte=1500)
         elif plan.budget_band == "1500+":
             qs = qs.filter(price__gte=1500)
+        elif plan.budget_band == "500+":
+            qs = qs.filter(price__gte=500)
+        elif plan.budget_band == "0+":
+            pass  # no lower bound filter — match all
 
     # Fields that need .with_sales_data() annotation
     if sort_field in ANNOTATION_FIELDS:

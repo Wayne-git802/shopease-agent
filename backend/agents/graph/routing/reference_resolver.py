@@ -85,11 +85,6 @@ _ORDINAL_PATTERN = re.compile(
     r'第\s*([\d一二两三四五六七八九十]+)\s*[个款]'
 )
 
-# Reserved for future — pointer references like "这个", "那个", "就它"
-_POINTER_PATTERNS: list[re.Pattern] = [
-    # re.compile(r'(这个|那个|它|就它|就这个)')
-]
-
 _ACTION_PATTERNS: list[tuple[re.Pattern, ReferenceAction]] = [
     (re.compile(r'(买|购买|下单|我要)\s*第'), ReferenceAction.PURCHASE),
     (re.compile(r'(加购物车|加入购物车|加购)\s*第'), ReferenceAction.ADD_TO_CART),
@@ -148,8 +143,9 @@ def resolve_reference(query: str, ctx: ReferenceContext) -> ResolvedReference:
     clarification_reason: ClarificationReason | None = None
     if product is None:
         clarification_reason = ClarificationReason.PRODUCT_NOT_FOUND
-    elif action is None:
-        clarification_reason = ClarificationReason.ACTION_MISSING
+    # Bare ordinal ("第二个") → default to VIEW_DETAIL, not clarify
+    if action is None and product is not None:
+        action = ReferenceAction.VIEW_DETAIL
 
     return ResolvedReference(
         target=ReferenceTarget(product_ids=[product.product_id] if product else []),
@@ -186,13 +182,13 @@ def _self_test() -> None:
     assert not r.requires_clarification
     print("PASS: 买第二个")
 
-    # Test 2: ordinal only, no action
+    # Test 2: ordinal only defaults to VIEW_DETAIL
     r = resolve_reference("第二个", ctx)
-    assert r.action is None
+    assert r.action == ReferenceAction.VIEW_DETAIL, f"Expected VIEW_DETAIL, got {r.action}"
     assert r.target.product_ids == [102]
-    assert r.capability is None
-    assert r.clarification_reason == ClarificationReason.ACTION_MISSING
-    assert r.requires_clarification
+    assert r.capability == "search"
+    assert r.clarification_reason is None
+    assert not r.requires_clarification
     print("PASS: 第二个")
 
     # Test 3: index out of range
