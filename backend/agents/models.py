@@ -392,6 +392,9 @@ class SessionState(models.Model):
     # Phase 6: cross-agent shared context (current_product, cart_snapshot)
     shared_view = models.JSONField(default=dict)
 
+    # PendingReference — session-scoped reference for clarification resume
+    pending_reference = models.JSONField(null=True, default=None)
+
     class Meta:
         db_table = "agent_session_state"
         indexes = [

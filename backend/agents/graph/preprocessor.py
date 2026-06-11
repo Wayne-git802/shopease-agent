@@ -20,6 +20,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
+from agents.graph.routing.reference_resolver import ClarificationReason
+
 
 @dataclass
 class ResolvedAction:
@@ -50,6 +52,7 @@ class ConversationState:
     context_summary: str = ""                   # One-line summary of last turn
     created_at: float = 0.0
     dialogue: DialogueContext = field(default_factory=DialogueContext)
+    pending_reference: "PendingReference | None" = None  # PendingReference or None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -273,3 +276,18 @@ def _merge_params(opt_params: dict | None, original: str, slot_label: str) -> di
     result["_original_query"] = original
     result["_slot_value"] = slot_label
     return result
+
+
+# ═══════════════════════════════════════════════════════════════
+# PendingReference — session-scoped reference for clarification
+# ═══════════════════════════════════════════════════════════════
+
+@dataclass
+class PendingReference:
+    """Session-scoped — minimal data for resuming after clarification.
+
+    Does NOT carry ResolvedReference details (confidence, source_index).
+    """
+    product_id: int
+    product_name: str
+    waiting_for: ClarificationReason

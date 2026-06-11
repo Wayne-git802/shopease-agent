@@ -71,6 +71,20 @@ def run(ctx: PipelineContext) -> AgentResult:
     # Build once — same instance flows through handoff loop (shared cache)
     agent_ctx = AgentContext.from_pipeline(ctx)
 
+    # ── Reference-based dispatch (runs BEFORE resolve) ──
+    resolved_ref = ctx.state.parallel_results.get("_resolved_ref")
+    if resolved_ref is not None:
+        target = getattr(resolved_ref, 'target', None)
+        if target and target.product_ids:
+            agent_ctx.reference = target
+        cap_str = getattr(resolved_ref, 'capability', None)
+        if cap_str:
+            # Resolve string capability → AgentCapability
+            cap = _resolve_capability(cap_str)
+            if cap:
+                return dispatch(cap, agent_ctx)
+        # No capability → fall through to existing resolve/graph
+
     while True:
         # Handoff takes priority
         if ctx.handoff:
@@ -104,3 +118,15 @@ from agents.purchase.agent import purchase_agent
 register(order_agent)
 register(cart_agent)
 register(purchase_agent)
+
+
+def _resolve_capability(cap_str: str) -> "AgentCapability | None":
+    """Resolve string capability to AgentCapability enum."""
+    for cap in AgentCapability:
+        if cap.value == cap_str:
+            return cap
+    # Try matching by capability name (e.g., "order" might be AgentCapability.ORDER)
+    try:
+        return AgentCapability(cap_str)
+    except ValueError:
+        return None

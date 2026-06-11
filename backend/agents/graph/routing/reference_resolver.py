@@ -40,6 +40,12 @@ class ProductReference:
 
 
 @dataclass
+class ReferenceTarget:
+    """What the user is referring to — supports single and multi-product references."""
+    product_ids: list[int] = field(default_factory=list)
+
+
+@dataclass
 class ReferenceContext:
     """Minimal context needed for reference resolution — no GraphState dependency."""
     products: list[ProductReference] = field(default_factory=list)
@@ -49,12 +55,13 @@ class ReferenceContext:
 @dataclass
 class ResolvedReference:
     """Result of reference resolution. All None → no reference detected."""
-    product_id: int | None = None
+    target: ReferenceTarget = field(default_factory=ReferenceTarget)
     product_name: str = ""
     confidence: float = 0.0
     action: ReferenceAction | None = None
-    source_index: int | None = None
+    capability: str | None = None
     clarification_reason: ClarificationReason | None = None
+    source_index: int | None = None  # internal use, debugging only
 
     @property
     def requires_clarification(self) -> bool:
@@ -63,7 +70,7 @@ class ResolvedReference:
 
     @property
     def has_product(self) -> bool:
-        return self.product_id is not None
+        return len(self.target.product_ids) > 0
 
     @property
     def has_action(self) -> bool:
@@ -93,6 +100,17 @@ _NUM_MAP: dict[str, int] = {
     "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
     "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
 }
+
+# AgentCapability 在 pipeline 模块，用字符串做 lazy mapping
+_ACTION_CAPABILITY_MAP: dict[ReferenceAction, str] = {
+    ReferenceAction.PURCHASE: "order",       # AgentCapability.ORDER
+    ReferenceAction.ADD_TO_CART: "cart",     # AgentCapability.CART
+    ReferenceAction.VIEW_DETAIL: "search",   # AgentCapability.SEARCH
+}
+
+
+def capability_for(action: ReferenceAction) -> str | None:
+    return _ACTION_CAPABILITY_MAP.get(action)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -134,10 +152,11 @@ def resolve_reference(query: str, ctx: ReferenceContext) -> ResolvedReference:
         clarification_reason = ClarificationReason.ACTION_MISSING
 
     return ResolvedReference(
-        product_id=product.product_id if product else None,
+        target=ReferenceTarget(product_ids=[product.product_id] if product else []),
         product_name=product.product_name if product else "",
         confidence=1.0 if product else 0.0,
         action=action,
+        capability=capability_for(action) if (action is not None and product is not None) else None,
         source_index=ref_idx + 1,  # 1-indexed for human-readable
         clarification_reason=clarification_reason,
     )
@@ -161,7 +180,8 @@ def _self_test() -> None:
     # Test 1: action + product
     r = resolve_reference("买第二个", ctx)
     assert r.action == ReferenceAction.PURCHASE, f"Expected PURCHASE, got {r.action}"
-    assert r.product_id == 102, f"Expected 102, got {r.product_id}"
+    assert r.target.product_ids == [102], f"Expected [102], got {r.target.product_ids}"
+    assert r.capability == "order", f"Expected 'order', got {r.capability}"
     assert r.source_index == 2
     assert not r.requires_clarification
     print("PASS: 买第二个")
@@ -169,7 +189,8 @@ def _self_test() -> None:
     # Test 2: ordinal only, no action
     r = resolve_reference("第二个", ctx)
     assert r.action is None
-    assert r.product_id == 102
+    assert r.target.product_ids == [102]
+    assert r.capability is None
     assert r.clarification_reason == ClarificationReason.ACTION_MISSING
     assert r.requires_clarification
     print("PASS: 第二个")
@@ -177,35 +198,40 @@ def _self_test() -> None:
     # Test 3: index out of range
     r = resolve_reference("第十五个", ctx)
     assert r.clarification_reason == ClarificationReason.PRODUCT_NOT_FOUND
-    assert r.product_id is None
+    assert r.target.product_ids == []
+    assert r.capability is None
     assert r.requires_clarification
     print("PASS: 第十五个")
 
     # Test 4: first ordinal
     r = resolve_reference("加购物车第一个", ctx)
     assert r.action == ReferenceAction.ADD_TO_CART
-    assert r.product_id == 101
+    assert r.target.product_ids == [101]
+    assert r.capability == "cart", f"Expected 'cart', got {r.capability}"
     assert r.source_index == 1
     assert not r.requires_clarification
     print("PASS: 加购物车第一个")
 
     # Test 5: no reference
     r = resolve_reference("推荐手机", ctx)
-    assert r.product_id is None
+    assert r.target.product_ids == []
     assert r.action is None
+    assert r.capability is None
     assert not r.requires_clarification
     print("PASS: 推荐手机 (no reference)")
 
     # Test 6: view detail
     r = resolve_reference("看看第二个", ctx)
     assert r.action == ReferenceAction.VIEW_DETAIL
-    assert r.product_id == 102
+    assert r.target.product_ids == [102]
+    assert r.capability == "search", f"Expected 'search', got {r.capability}"
     print("PASS: 看看第二个")
 
     # Test 7: empty context
     r = resolve_reference("第一个", ReferenceContext())
     assert r.action is None
-    assert r.product_id is None
+    assert r.target.product_ids == []
+    assert r.capability is None
     assert r.clarification_reason == ClarificationReason.PRODUCT_NOT_FOUND
     print("PASS: 第一个 (empty context)")
 

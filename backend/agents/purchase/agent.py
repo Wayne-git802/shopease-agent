@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 from uuid import uuid4
 
+from agents.graph.reference_resolver import ResolvedReference
+
 from . import workflow_store
 from . import confirmation_gate
 from . import repository
@@ -34,7 +36,7 @@ def _run(
     user_id: int | None = None,
     session_id: str = "",
     display_id: str = "",
-    resolved_ref: object = None,  # ResolvedReference from routing layer
+    product_id: int | None = None,  # from execution layer via AgentContext.reference
 ) -> dict:
     """Internal implementation.  External callers use PurchaseAgent.execute()."""
 
@@ -54,14 +56,12 @@ def _run(
     if parsed.intent == PurchaseIntent.OTHER:
         return {"_fallback": True}
 
-    # 4. Resolve product reference — prefer routing layer's resolved ref
-    from agents.graph.routing.reference_resolver import ResolvedReference as RoutingRef
-    if resolved_ref is not None and getattr(resolved_ref, 'product_id', 0):
+    # 4. Resolve product reference — prefer execution layer's product_id
+    if product_id is not None:
         ref = ResolvedReference(
-            source="routing",
-            product_id=resolved_ref.product_id,
+            source="execution",
+            product_id=product_id,
             confidence=0.95,
-            name=getattr(resolved_ref, 'product_name', ''),
         )
     else:
         from agents.graph.reference_resolver import resolve as resolve_ref
@@ -194,10 +194,13 @@ class PurchaseAgent:
         else:
             # Read shared view for cart snapshot (from CartAgent handoff)
             view = ctx.memory.get_shared_view(ctx.session_id)
+            # Extract product_id from execution layer via AgentContext.reference
+            product_id = ctx.reference.product_ids[0] if ctx.reference and ctx.reference.product_ids else None
             # Inject cart snapshot into result so display layer can show it
             result = _run(
                 query=ctx.query, user_id=ctx.user_id,
                 session_id=ctx.session_id, display_id=ctx.display_id,
+                product_id=product_id,
             )
             if view.cart_snapshot and not result.get("_fallback"):
                 result.setdefault("cart_snapshot", view.cart_snapshot)

@@ -98,7 +98,31 @@ def _dialogue_merge(ctx: PipelineContext, conv_state) -> None:
         ctx.state.parallel_results["_resolved_ref"] = ref
         return
 
-    # ── 2. Fall back to existing logic ──
+    # ── 2. Clarification follow-up ──
+    if hasattr(conv_state, 'pending_reference') and conv_state.pending_reference is not None:
+        pending = conv_state.pending_reference
+        action = _infer_action_from_clarification_reply(ctx.query)
+        if action is not None:
+            from .reference_resolver import (
+                ResolvedReference, ReferenceTarget, ReferenceAction,
+                ClarificationReason, capability_for,
+            )
+            cap = capability_for(action)
+            resolved = ResolvedReference(
+                target=ReferenceTarget(product_ids=[pending.product_id]),
+                product_name=pending.product_name,
+                confidence=0.9,
+                action=action,
+                capability=cap,
+            )
+            conv_state.pending_reference = None
+            conv_state.dialogue.expects_followup = False
+            ctx.state.parallel_results["_resolved_ref"] = resolved
+            return
+        # User said something unrelated → clear pending, fall through
+        conv_state.pending_reference = None
+
+    # ── 3. Fall back to existing logic ──
     if has_strong_intent(ctx.query):
         conv_state.dialogue.expects_followup = False
     elif _is_ambiguous(ctx.query):
@@ -147,6 +171,21 @@ def _try_resolve(ctx: PipelineContext, conv_state) -> "ResolvedReference | None"
     if resolved.product_id is None and resolved.action is None:
         return None  # No reference detected
     return resolved
+
+
+def _infer_action_from_clarification_reply(query: str) -> "ReferenceAction | None":
+    """从用户对澄清的回复中推断 action。只处理明确的关键词。"""
+    q = query.strip()
+    if any(kw in q for kw in ["购买", "下单", "买", "立即购买"]):
+        from .reference_resolver import ReferenceAction
+        return ReferenceAction.PURCHASE
+    if any(kw in q for kw in ["加入购物车", "加购", "加购物车"]):
+        from .reference_resolver import ReferenceAction
+        return ReferenceAction.ADD_TO_CART
+    if any(kw in q for kw in ["查看", "看看", "详情", "介绍"]):
+        from .reference_resolver import ReferenceAction
+        return ReferenceAction.VIEW_DETAIL
+    return None
 
 
 # ── Signal fusion ───────────────────────────────────────────────

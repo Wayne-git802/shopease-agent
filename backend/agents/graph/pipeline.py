@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
+from agents.graph.routing.reference_resolver import ReferenceTarget
+
 
 # ═══════════════════════════════════════════════════════════════
 # AgentCapability — typed capability tag for agent dispatch
@@ -142,6 +144,7 @@ class AgentContext:
     user_id: int | None
     session_id: str
     display_id: str = ""
+    reference: ReferenceTarget | None = None
     memory: "AgentMemory" = field(default_factory=lambda: _new_agent_memory())
 
     @classmethod

@@ -150,11 +150,22 @@ def cleanup_expired() -> int:
 # ConversationState — also DB-backed now
 # ═══════════════════════════════════════════════════════════════
 
-from .preprocessor import ConversationState, DialogueContext
+from .preprocessor import ConversationState, DialogueContext, PendingReference, ClarificationReason
 
 
 def _row_to_conv_state(row) -> ConversationState:
     """Convert a SessionState DB row to a ConversationState dataclass."""
+    pending_ref = None
+    if row.pending_reference:
+        try:
+            pending_ref = PendingReference(
+                product_id=row.pending_reference["product_id"],
+                product_name=row.pending_reference["product_name"],
+                waiting_for=ClarificationReason(row.pending_reference["waiting_for"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            logger.warning("Failed to deserialize pending_reference for session=%s", row.session_id)
+
     return ConversationState(
         session_id=row.session_id,
         last_intent=row.last_intent,
@@ -169,6 +180,7 @@ def _row_to_conv_state(row) -> ConversationState:
             last_user_query=row.last_user_query,
             expects_followup=row.expects_followup,
         ),
+        pending_reference=pending_ref,
     )
 
 
@@ -186,6 +198,14 @@ def put_conv_state(cs: ConversationState) -> None:
     """Store or update conversation state."""
     from agents.models import SessionState
 
+    pending_ref_dict = None
+    if cs.pending_reference is not None:
+        pending_ref_dict = {
+            "product_id": cs.pending_reference.product_id,
+            "product_name": cs.pending_reference.product_name,
+            "waiting_for": cs.pending_reference.waiting_for.value,
+        }
+
     try:
         SessionState.objects.update_or_create(
             session_id=cs.session_id,
@@ -199,6 +219,7 @@ def put_conv_state(cs: ConversationState) -> None:
                 "injected_slot": cs.dialogue.injected_slot or "",
                 "last_user_query": cs.dialogue.last_user_query,
                 "expects_followup": cs.dialogue.expects_followup,
+                "pending_reference": pending_ref_dict,
                 "expires_at": _now() + timedelta(seconds=TTL_SECONDS),
             },
         )

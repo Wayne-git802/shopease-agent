@@ -148,6 +148,7 @@ def _manage_session(ctx: PipelineContext, state) -> None:
     clarify_data = state.tool_results.get("_clarify")
     session_id = ctx.session_id
     has_cards = bool(state.tool_results.get("products"))
+    is_clarify_ref = state.parallel_results.get("_clarify_reference", False)
 
     if clarify_data and session_id:
         sm = SessionMemory(
@@ -163,7 +164,16 @@ def _manage_session(ctx: PipelineContext, state) -> None:
             ai_reply=state.final_response,
         )
         cs.dialogue.last_user_query = ctx.query
-        cs.dialogue.expects_followup = has_cards
+        cs.dialogue.expects_followup = has_cards or is_clarify_ref
+        if is_clarify_ref:
+            ref = state.parallel_results.get("_resolved_ref")
+            if ref and hasattr(ref, 'target') and ref.target.product_ids:
+                from .preprocessor import PendingReference
+                cs.pending_reference = PendingReference(
+                    product_id=ref.target.product_ids[0],
+                    product_name=ref.product_name,
+                    waiting_for=ref.clarification_reason,
+                )
         put_conv_state(cs)
     elif session_id:
         clear_session_memory(session_id)
@@ -173,7 +183,16 @@ def _manage_session(ctx: PipelineContext, state) -> None:
             ai_reply=state.final_response,
         )
         cs.dialogue.last_user_query = ctx.query
-        cs.dialogue.expects_followup = has_cards
+        cs.dialogue.expects_followup = has_cards or is_clarify_ref
+        if is_clarify_ref:
+            ref = state.parallel_results.get("_resolved_ref")
+            if ref and hasattr(ref, 'target') and ref.target.product_ids:
+                from .preprocessor import PendingReference
+                cs.pending_reference = PendingReference(
+                    product_id=ref.target.product_ids[0],
+                    product_name=ref.product_name,
+                    waiting_for=ref.clarification_reason,
+                )
         put_conv_state(cs)
 
 
