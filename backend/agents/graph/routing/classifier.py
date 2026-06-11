@@ -136,8 +136,8 @@ def _dialogue_merge(ctx: PipelineContext, conv_state) -> None:
 
 
 def _is_ambiguous(query: str) -> bool:
-    """Deprecated — reference resolution now handled by reference_resolver.
-    Kept for backward compatibility. Will be removed in next PR."""
+    """True if query contains a product reference (ordinal or action-based).
+    Delegates to reference_resolver for detection."""
     from .reference_resolver import resolve_reference, ReferenceContext
     ref = resolve_reference(query, ReferenceContext())
     return bool(ref.target.product_ids) or ref.action is not None

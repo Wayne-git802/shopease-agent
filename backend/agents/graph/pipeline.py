@@ -19,10 +19,13 @@ Design rules:
 
 from __future__ import annotations
 
+import logging
 import time as _time
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -190,6 +193,7 @@ def _resolve_reference_for_context(ctx: "PipelineContext") -> "ReferenceTarget |
             return resolved.target
         return None
     except Exception:
+        logger.debug("_resolve_reference_for_context skipped — no DB or blocks", exc_info=True)
         return None
 
 

@@ -1,13 +1,18 @@
 """
-ReferenceResolver — unified product reference resolution.
+ReferenceResolver — legacy product reference resolution for domain agents.
+
+⚠️  NOTE: This module is the OLD reference resolver used internally by
+PurchaseAgent and CartAgent for product reference resolution during
+agent execution.  It defines its own ResolvedReference (incompatible
+with routing/reference_resolver.ResolvedReference).
+
+For routing-time reference resolution (action detection, capability routing,
+clarification), see routing/reference_resolver.py instead.
 
 One resolve() function handles:
   1. DisplayContext lookups (when user says "第一个", "第二个")
   2. Focused-item pronoun resolution (when user says "那个", "这个")
   3. Block-based implicit references (when user says "买这个", "加购")
-
-Consumed by PurchaseAgent, CartAgent, and any other agent that needs to
-resolve "which product is the user referring to?"
 """
 
 from __future__ import annotations
