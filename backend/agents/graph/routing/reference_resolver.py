@@ -103,9 +103,9 @@ _NUM_MAP: dict[str, int] = {
 
 # AgentCapability 在 pipeline 模块，用字符串做 lazy mapping
 _ACTION_CAPABILITY_MAP: dict[ReferenceAction, str] = {
-    ReferenceAction.PURCHASE: "order",       # AgentCapability.ORDER
-    ReferenceAction.ADD_TO_CART: "cart",     # AgentCapability.CART
-    ReferenceAction.VIEW_DETAIL: "search",   # AgentCapability.SEARCH
+    ReferenceAction.PURCHASE: "purchase",     # AgentCapability.PURCHASE
+    ReferenceAction.ADD_TO_CART: "cart",      # AgentCapability.CART
+    ReferenceAction.VIEW_DETAIL: "search",    # handled by entry_router → graph, not execution
 }
 
 
@@ -181,7 +181,7 @@ def _self_test() -> None:
     r = resolve_reference("买第二个", ctx)
     assert r.action == ReferenceAction.PURCHASE, f"Expected PURCHASE, got {r.action}"
     assert r.target.product_ids == [102], f"Expected [102], got {r.target.product_ids}"
-    assert r.capability == "order", f"Expected 'order', got {r.capability}"
+    assert r.capability == "purchase", f"Expected 'order', got {r.capability}"
     assert r.source_index == 2
     assert not r.requires_clarification
     print("PASS: 买第二个")
