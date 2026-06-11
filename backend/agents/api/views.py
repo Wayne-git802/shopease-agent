@@ -138,6 +138,7 @@ def ai_entry(request):
 
     assistant_reply = ''
     assistant_blocks = []
+    result = {}
     try:
         result = run_graph(query=query, user_id=user_id, session_id=session_id,
                           query_type=query_type, product_id=product_id,
