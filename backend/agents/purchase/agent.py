@@ -48,6 +48,9 @@ def _run(
     state = workflow_store.load(session_id)
     if not state:
         state = PurchaseSessionState(workflow_id=f"wf_{uuid4().hex[:16]}")
+    # Reset terminal states so new purchases are not blocked
+    if state.current_step == PurchaseStep.PURCHASED:
+        state = PurchaseSessionState(workflow_id=f"wf_{uuid4().hex[:16]}")
 
     # 3. Parse intent
     parsed = parse_intent(query)

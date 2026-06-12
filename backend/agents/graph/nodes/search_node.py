@@ -193,8 +193,7 @@ def search_node(state: AgentState) -> AgentState:
             from agents.commerce.queries.product_query import ProductQuery
             try:
                 p = ProductQuery.purchasable().get(id=resolved_ref.target.product_ids[0])
-                from ..contracts.product import ProductRef as _PR
-                pr = _PR(
+                pr = ProductRef(
                     id=p.id, name=p.name, price=float(p.price or 0),
                     category=p.category.name if p.category else "",
                     relevance=1.0,
