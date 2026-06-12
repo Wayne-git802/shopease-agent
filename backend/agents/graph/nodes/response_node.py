@@ -40,16 +40,18 @@ def response_node(state: AgentState) -> AgentState:
             }
         return state
 
-    elif state.ranked_items:
+    elif state.ranked_items or state.tool_results.get("products"):
         # Branch 2: EXPLAIN + PRODUCT — recommendations with rationale
-        parts = [state.final_response or f"为您找到 {len(state.ranked_items)} 款商品："]
+        products = state.tool_results.get("products", [])
+        count = len(state.ranked_items) or len(products)
+        parts = [state.final_response or f"为您找到 {count} 款商品："]
         all_reasons: set[str] = set()
         for item in state.ranked_items[:5]:
             all_reasons.update(item.reasons)
         if all_reasons:
             parts.append(f"\n💡 推荐理由: {', '.join(sorted(all_reasons)[:5])}")
         state.final_response = "\n".join(parts)
-        state.ui_message = f"为你找到 {len(state.ranked_items)} 款相关商品"
+        state.ui_message = f"为你找到 {count} 款相关商品"
         state.current_node = "response"
         state.steps_done.append("response")
         return state

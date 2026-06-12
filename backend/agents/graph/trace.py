@@ -15,9 +15,7 @@ from .state import NodeTrace
 
 NODE_TO_PHASE = {
     "entry_router":   "understanding",
-    "search_node":    "retrieving",
-    "recommend_node": "matching",
-    "merge_node":     "ranking",
+    "search":         "retrieving",
     "response_node":  "explaining",
     "analytics_node": "analyzing",
     "order_node":     "processing",
@@ -28,7 +26,6 @@ NODE_TO_PHASE = {
 PHASE_LABELS = {
     "understanding": "理解你的需求",
     "retrieving":    "检索相关商品",
-    "matching":      "匹配你的偏好",
     "ranking":       "筛选最优选择",
     "explaining":    "生成推荐理由",
     "analyzing":     "分析数据",

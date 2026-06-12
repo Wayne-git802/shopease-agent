@@ -4,7 +4,7 @@ Search Node — P1 strategy-driven hybrid retrieval.
 Upgrades the old binary "structured? → SQL : FAISS" to a 3-strategy system:
   SQL_ONLY  — Direct SQL ORDER BY for clear sort intents
   SEMANTIC  — FAISS vector search + RRF fusion
-  HYBRID    — Both paths, producing separate Candidate groups for merge_node
+  HYBRID    — Both paths, unified ranking in search_node (Phase 6: no merge_node)
 
 Strategy is selected by SearchStrategySelector, not by parser alone.
 """
@@ -218,6 +218,10 @@ def search_node(state: AgentState) -> AgentState:
     query = state.user_query or ""
     normalized = normalize_query(query)
 
+    # ── Resolve retrieval mode ──
+    mode = _resolve_mode(state.intent)
+    state.parallel_results["_retrieval_mode"] = mode
+
     # ── Load SearchPlan from orchestrator (ConstraintParser + Validator) ──
     plan_dict = state.parallel_results.get("_search_plan", {})
     plan = SearchPlan(
@@ -371,7 +375,7 @@ def search_node(state: AgentState) -> AgentState:
                     dbp.relevance = p.relevance  # carry forward FAISS relevance
                     enriched.append(dbp)
             if enriched:
-                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k, skip_diversity=bool(brand_filter))
+                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k, skip_diversity=bool(brand_filter) or mode == "exact")
                 state.parallel_results["_score_breakdown"] = score_breakdown
                 # Convert back to ProductRef with final scores
                 products = [
@@ -400,7 +404,7 @@ def search_node(state: AgentState) -> AgentState:
                     dbp.relevance = p.relevance
                     enriched.append(dbp)
             if enriched:
-                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k, skip_diversity=bool(brand_filter))
+                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k, skip_diversity=bool(brand_filter) or mode == "exact")
                 state.parallel_results["_score_breakdown"] = score_breakdown
                 products = [
                     ProductRef(
@@ -599,3 +603,20 @@ def _rank_products(products, search_plan: dict, top_k: int = 10, skip_diversity:
         [r[0] for r in top_ranked],
         [{"product_id": r[0].id, "total": round(r[1], 3), "components": r[2]} for r in top_ranked],
     )
+
+
+# ── Retrieval Mode ──────────────────────────────────────────────
+
+def _resolve_mode(intent: str) -> str:
+    """Resolve retrieval mode from intent.
+
+    search    → semi-structured, brand filter or keyword → exact
+    recommend → soft (embedding recall, diversity-favored ranking)
+    explore   → soft + popular fallback
+    """
+    if intent == "search":
+        return "soft"  # default to FAISS + ranking
+    if intent == "recommend":
+        return "soft"  # same retrieval, different ranking (more diversity)
+    if intent == "explore":
+        return "soft"  # popular fallback handled by response layer

@@ -522,31 +522,9 @@ def _enrich_decision_trace(state, dt) -> None:
             reason=strategy_dec.get("reason", ""),
             inputs={
                 "strategy": strategy_dec.get("strategy", "semantic"),
-                "dual_source": strategy_dec.get("dual_source", False),
+                "mode": state.parallel_results.get("_retrieval_mode", "soft"),
                 "structured_count": struct_count,
                 "semantic_count": len(state.retrieved_products or []),
-            },
-        ),
-        BranchDecision(
-            node="recommend",
-            branch=state.parallel_results.get("recommend_type", "popular"),
-            reason=f"intent={state.intent}, user_id={state.user_id}",
-            inputs={"intent": state.intent},
-        ),
-        BranchDecision(
-            node="merge",
-            branch="fusion_p1",
-            reason=(
-                f"policy={merged.get('policy', 'default')}, "
-                f"sw={merged.get('search_weight', 0.5)}, "
-                f"rw={merged.get('rec_weight', 0.5)}, "
-                f"div={merged.get('diversity_lambda', 0.25)}"
-            ),
-            inputs={
-                "search_count": len(state.retrieved_products or []),
-                "rec_count": len(state.ranked_items or []),
-                "struct_count": struct_count,
-                "policy": merged,
             },
         ),
     ]
