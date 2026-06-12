@@ -609,13 +609,17 @@ function renderRuntimePanelInline(container, data) {
 
 // ── P4: Confirm Dialog (Purchase) ──
 function renderConfirmDialog(container, data) {
-    const w = document.createElement('div'); w.className = 'confirm-dialog';
+    var isRefund = data.confirm_type === 'refund' || data.confirm_type === 'cancel';
+    var icon = isRefund ? '💰' : '🛒';
+    var title = isRefund ? '确认退款' : '确认购买';
+    var confirmLabel = isRefund ? '✅ 确认退款' : '✅ 确认购买';
+    var w = document.createElement('div'); w.className = 'confirm-dialog';
     w.innerHTML =
-        '<div class="cd-header"><span class="cd-icon">🛒</span><span class="cd-title">确认购买</span></div>' +
-        '<div class="cd-product"><span class="cd-product-name">' + escapeHtml(data.name || '商品') + '</span>' +
+        '<div class="cd-header"><span class="cd-icon">' + icon + '</span><span class="cd-title">' + title + '</span></div>' +
+        '<div class="cd-product"><span class="cd-product-name">' + escapeHtml(data.name || '订单 #' + (data.order_id || '')) + '</span>' +
         '<span class="cd-product-price">¥' + (data.price || '--') + '</span></div>' +
         '<div class="cd-actions">' +
-            '<button class="cd-btn cd-btn-confirm" onclick="confirmPurchaseAction()">✅ 确认购买</button>' +
+            '<button class="cd-btn cd-btn-confirm" onclick="confirmPurchaseAction()">' + confirmLabel + '</button>' +
             '<button class="cd-btn cd-btn-cancel" onclick="cancelPurchaseAction()">❌ 算了</button>' +
         '</div>';
     container.appendChild(w);

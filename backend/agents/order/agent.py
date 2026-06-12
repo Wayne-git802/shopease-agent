@@ -126,6 +126,20 @@ def _run(query: str, user_id: int | None = None, session_id: str = "") -> dict:
 
     elif parsed.intent == OrderIntent.REFUND:
         if not wf_state.selected_order_id:
+            # Extract order_id from "退款 8503"
+            import re
+            refund_id = re.search(r'退款\s*(\d+)', query)
+            if refund_id:
+                try:
+                    oid = int(refund_id.group(1))
+                    detail = get_order_detail(user_id, oid)
+                    if detail and detail.get("status") in REFUNDABLE_STATUS:
+                        wf_state.selected_order_id = oid
+                        wf_state.current_step = OrderStep.SELECTED
+                except (ValueError, TypeError):
+                    pass
+
+        if not wf_state.selected_order_id:
             # Check recent_order_ids from session first
             from agents.graph.session_memory import get_conv_state
             cs = get_conv_state(session_id) if session_id else None
