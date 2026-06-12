@@ -141,7 +141,7 @@ def _update_memory(user_id, state) -> None:
 def _manage_session(ctx: PipelineContext, state) -> None:
     from .session_memory import (
         put as put_session_memory, clear as clear_session_memory,
-        put_conv_state, SessionMemory,
+        put_conv_state, SessionMemory, push_recent_order,
     )
     from .preprocessor import build_conversation_state
 
@@ -149,6 +149,12 @@ def _manage_session(ctx: PipelineContext, state) -> None:
     session_id = ctx.session_id
     has_cards = bool(state.tool_results.get("products"))
     is_clarify_ref = state.parallel_results.get("_clarify_reference", False)
+
+    # After purchase, remember for refund context
+    if purchase_order := state.tool_results.get("_purchase_order"):
+        order_id = purchase_order.get("order_id", "")
+        if order_id:
+            push_recent_order(session_id, str(order_id))
 
     if clarify_data and session_id:
         sm = SessionMemory(

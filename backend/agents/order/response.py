@@ -13,51 +13,54 @@ from typing import Optional
 @dataclass
 class ResponsePayload:
     text: str
+    reply: str = ""                     # alias for text, used by frontend
     blocks: list[dict] = field(default_factory=list)
     actions: list[str] = field(default_factory=list)  # suggested next actions
     metadata: dict = field(default_factory=dict)
+    ui_state: str = "done"              # cognitive UI state
+
+    def __post_init__(self):
+        if not self.reply:
+            self.reply = self.text
 
     def to_dict(self) -> dict:
         return {
-            "reply": self.text,
+            "reply": self.reply or self.text,
             "intent": "order",
             "agent_type": "order",
             "blocks": self.blocks,
             "actions": self.actions,
             "metadata": self.metadata,
-            "ui_state": "done",
+            "ui_state": self.ui_state,
         }
 
 
 def build_order_list(orders: list[dict]) -> ResponsePayload:
-    """Build response for order listing."""
+    """Build order card blocks for each order."""
     if not orders:
         return ResponsePayload(text="你还没有订单记录。")
 
-    lines = ["你有以下订单："]
     blocks = []
-    for i, o in enumerate(orders, 1):
-        status_cn = _status_cn(o.get("status", ""))
-        lines.append(f"{i}. [{status_cn}] {o.get('order_no', '')} — ¥{o.get('total_amount', '0')}")
+    for order in orders:
         blocks.append({
             "type": "order_card",
             "data": {
-                "index": i,
-                "order_id": o.get("id"),
-                "order_no": o.get("order_no"),
-                "status": o.get("status"),
-                "status_cn": status_cn,
-                "amount": o.get("total_amount"),
-                "created_at": o.get("created_at"),
+                "order_id": order["id"],
+                "product_name": order.get("product_name", order.get("name", "")),
+                "price": order.get("price", order.get("total_amount", 0)),
+                "status": order.get("status", ""),
+                "created_at": order.get("created_at", ""),
             },
         })
 
-    lines.append("\n回复数字编号查看详情，或选择「退款」「查物流」操作。")
+    reply = f"为你找到 {len(orders)} 个订单，请选择要操作的订单："
     return ResponsePayload(
-        text="\n".join(lines),
+        text=reply,
+        reply=reply,
         blocks=blocks,
         actions=["退款", "查物流", "取消订单"],
         metadata={"count": len(blocks)},
+        ui_state="listing",
     )
 
 

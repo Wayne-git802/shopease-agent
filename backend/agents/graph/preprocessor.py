@@ -53,6 +53,7 @@ class ConversationState:
     created_at: float = 0.0
     dialogue: DialogueContext = field(default_factory=DialogueContext)
     pending_reference: "PendingReference | None" = None  # PendingReference or None
+    recent_order_ids: list[str] = field(default_factory=list)  # max 5, most recent first
 
 
 # ═══════════════════════════════════════════════════════════════

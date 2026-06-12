@@ -59,6 +59,8 @@ def _run_pipeline(ctx: PipelineContext) -> dict:
         logger.error("Execution failed: %s", exec_result.response)
         return exec_result.response or {"reply": "系统内部错误，请稍后重试。"}
     if exec_result.status == "success" and exec_result.response is not None:
+        # After purchase, remember for refund context
+        _record_purchase_order(ctx.session_id, exec_result.response)
         return exec_result.response
 
     # Stage 3: Response
@@ -76,6 +78,23 @@ def _enrich_response(result: dict, ctx: PipelineContext) -> dict:
     if "runtime" not in result:
         result["runtime"] = {"total_ms": ctx.elapsed_ms()}
     return result
+
+
+def _record_purchase_order(session_id: str, response: dict) -> None:
+    """After a successful purchase, push order_id to recent_order_ids."""
+    if not session_id:
+        return
+    # Purchase responses have agent_type="purchase" with an order_created_card block
+    if response.get("agent_type") != "purchase":
+        return
+    blocks = response.get("blocks", [])
+    for block in blocks:
+        if block.get("type") == "order_created_card":
+            order_id = block.get("data", {}).get("order_id")
+            if order_id:
+                from .session_memory import push_recent_order
+                push_recent_order(session_id, str(order_id))
+            break
 
 
 # ═══════════════════════════════════════════════════════════════

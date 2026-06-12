@@ -395,6 +395,9 @@ class SessionState(models.Model):
     # PendingReference — session-scoped reference for clarification resume
     pending_reference = models.JSONField(null=True, default=None)
 
+    # Recent order IDs — max 5, most recent first ["ORD003","ORD002","ORD001"]
+    recent_order_ids = models.JSONField(default=list)
+
     class Meta:
         db_table = "agent_session_state"
         indexes = [

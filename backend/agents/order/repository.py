@@ -29,15 +29,17 @@ def _hash_snapshot(data: dict) -> str:
 # Read operations
 # ═══════════════════════════════════════════════════════════
 
-def get_user_orders(user_id: int, limit: int = 20) -> list[dict]:
-    """Return user's orders, newest first."""
-    orders = (
+def get_user_orders(user_id: int, limit: int = 20, recent_first: bool = True) -> list[dict]:
+    """Get user orders, most recent first."""
+    qs = (
         Order.objects
         .filter(user_id=user_id, buyer_deleted=False)
         .order_by("-created_at")
-    )[:limit]
+    )
+    if recent_first:
+        qs = qs[:limit]
 
-    return [_order_to_dict(o) for o in orders]
+    return [_order_to_dict(o) for o in qs]
 
 
 def get_order_detail(user_id: int, order_id: int) -> dict | None:
@@ -166,6 +168,17 @@ def create_refund(
 # ═══════════════════════════════════════════════════════════
 
 def _order_to_dict(o: Order) -> dict:
+    # Try to get first item's product name and price
+    product_name = ""
+    price = ""
+    try:
+        first_item = o.items.select_related("product").first()
+        if first_item:
+            product_name = first_item.product.name
+            price = str(first_item.price)
+    except Exception:
+        pass
+
     return {
         "id": o.id,
         "order_no": o.order_no,
@@ -176,6 +189,8 @@ def _order_to_dict(o: Order) -> dict:
         "receiver_phone": o.receiver_phone,
         "created_at": o.created_at.isoformat(),
         "is_final": o.is_final(),
+        "product_name": product_name,
+        "price": price,
     }
 
 

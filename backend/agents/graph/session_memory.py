@@ -181,6 +181,7 @@ def _row_to_conv_state(row) -> ConversationState:
             expects_followup=row.expects_followup,
         ),
         pending_reference=pending_ref,
+        recent_order_ids=row.recent_order_ids or [],
     )
 
 
@@ -220,6 +221,7 @@ def put_conv_state(cs: ConversationState) -> None:
                 "last_user_query": cs.dialogue.last_user_query,
                 "expects_followup": cs.dialogue.expects_followup,
                 "pending_reference": pending_ref_dict,
+                "recent_order_ids": cs.recent_order_ids,
                 "expires_at": _now() + timedelta(seconds=TTL_SECONDS),
             },
         )
@@ -230,3 +232,21 @@ def put_conv_state(cs: ConversationState) -> None:
 def clear_conv_state(session_id: str) -> None:
     """Remove conversation state."""
     clear(session_id)  # same row
+
+
+# ═══════════════════════════════════════════════════════════════
+# Recent order IDs — remember last 5 purchases for refund context
+# ═══════════════════════════════════════════════════════════════
+
+def push_recent_order(session_id: str, order_id: str) -> None:
+    """Push an order_id to the front of recent_order_ids (max 5)."""
+    if not session_id or not order_id:
+        return
+    cs = get_conv_state(session_id)
+    if cs is None:
+        cs = ConversationState(session_id=session_id)
+    recent = list(cs.recent_order_ids or [])
+    # Dedup + push to front
+    recent = [order_id] + [oid for oid in recent if oid != order_id]
+    cs.recent_order_ids = recent[:5]
+    put_conv_state(cs)

@@ -75,6 +75,21 @@ def classify(ctx: PipelineContext) -> None:
             ctx.state.parallel_results["_intent_score"] = intent_score.to_dict()
             commerce_result.confidence = intent_score.adjusted_confidence
 
+    # ── 4.5. Reference override — deterministic > probabilistic ──
+    ref = ctx.state.parallel_results.get("_resolved_ref") if ctx.state else None
+    if ref is not None and ref.capability is not None:
+        from ..commerce_intent import IntentResult
+        ctx.commerce_result = IntentResult(intent=ref.capability, confidence=1.0)
+        ctx.conv_state = conv_state
+        ctx.final_route = RouteDecision(
+            intent=ref.capability, confidence=1.0,
+            reason=f"ReferenceResolver: {ref.action.value} → {ref.capability}",
+            needs_commerce_layer=False, execution_hint="graph_full",
+            control_context={},
+        )
+        logger.debug("Reference override: %s → %s (skipped L0+L1)", ref.action.value, ref.capability)
+        return
+
     # ── 5. FinalDecision ──
     ctx.commerce_result = commerce_result
     ctx.conv_state = conv_state

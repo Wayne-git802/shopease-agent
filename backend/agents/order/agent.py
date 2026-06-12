@@ -28,6 +28,9 @@ from .workflow_store import load as load_workflow, save as save_workflow, delete
 
 logger = logging.getLogger(__name__)
 
+# Orders with these statuses are eligible for refund
+REFUNDABLE_STATUS = frozenset({"paid", "shipped", "completed"})
+
 
 def _run(query: str, user_id: int | None = None, session_id: str = "") -> dict:
     """Internal implementation.  External callers use OrderAgent.execute()."""
@@ -123,18 +126,39 @@ def _run(query: str, user_id: int | None = None, session_id: str = "") -> dict:
 
     elif parsed.intent == OrderIntent.REFUND:
         if not wf_state.selected_order_id:
-            # No order selected — auto-query orders first
-            orders = execute("query_orders", user_id)
-            if not orders:
-                return build_error("你还没有订单，无法退款").to_dict()
-            wf_state.current_step = OrderStep.LISTING
-            wf_state.orders_snapshot = orders
-            if len(orders) == 1:
-                # Only one order — auto-select it
-                wf_state.selected_order_id = orders[0]["id"]
+            # Check recent_order_ids from session first
+            from agents.graph.session_memory import get_conv_state
+            cs = get_conv_state(session_id) if session_id else None
+            recent_ids = getattr(cs, 'recent_order_ids', []) or [] if cs else []
+
+            refundable = []
+            for oid in recent_ids[:3]:
+                try:
+                    oid_int = int(oid)
+                except (ValueError, TypeError):
+                    continue
+                detail = get_order_detail(user_id, oid_int)
+                if detail and detail.get("status") in REFUNDABLE_STATUS:
+                    refundable.append(detail)
+
+            if len(refundable) == 1:
+                # Single recent order → auto-confirm
+                wf_state.selected_order_id = refundable[0]["id"]
                 wf_state.current_step = OrderStep.SELECTED
             else:
-                return build_order_list(orders).to_dict()
+                # Multiple or none → fall through to full order query
+                orders = execute("query_orders", user_id)
+                if not orders:
+                    return build_error("你还没有订单，无法退款").to_dict()
+                wf_state.current_step = OrderStep.LISTING
+                wf_state.orders_snapshot = orders
+                if len(orders) == 1:
+                    # Only one order — auto-select it
+                    wf_state.selected_order_id = orders[0]["id"]
+                    wf_state.current_step = OrderStep.SELECTED
+                else:
+                    return build_order_list(orders).to_dict()
+
         if not wf_state.selected_order_id:
             return build_error("请先选择要退款的订单").to_dict()
         if requires_confirmation("request_refund"):
