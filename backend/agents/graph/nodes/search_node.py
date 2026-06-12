@@ -314,6 +314,9 @@ def search_node(state: AgentState) -> AgentState:
         # ── Constraint relaxation when FAISS∩SQL is empty ──
         relaxed_constraints = []
         if not products and sql_ids is not None:
+            # Re-fetch with larger window to get more candidates
+            products_large, _ = retriever.search(enriched_query, top_k=100, user_id=state.user_id)
+            all_faiss_products = list(products_large)
             from agents.commerce.queries.product_query import ProductQuery as _PQ
             
             # Layer 1: drop brand (keep category + price)
