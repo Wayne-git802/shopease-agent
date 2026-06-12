@@ -135,6 +135,9 @@ def create_refund(
         order=o, user_id=user_id, status=RefundStatus.PENDING
     ).first()
     if existing:
+        if o.status != OrderStatus.REFUNDING:
+            o.status = OrderStatus.REFUNDING
+            o.save(update_fields=["status"])
         return {
             "ok": True,
             "refund_id": existing.id,
