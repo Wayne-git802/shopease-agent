@@ -229,6 +229,9 @@ def search_node(state: AgentState) -> AgentState:
         sort_by=plan_dict.get("sort_by"),
         direction=plan_dict.get("direction"),
         category_filter=plan_dict.get("category_filter"),
+        brand=plan_dict.get("brand"),
+        budget_lower=plan_dict.get("budget_lower"),
+        budget_upper=plan_dict.get("budget_upper"),
         budget_band=plan_dict.get("budget_band"),
         strategy=plan_dict.get("strategy", RetrievalStrategy.SEMANTIC),
         semantic_query=normalized,
@@ -351,7 +354,8 @@ def search_node(state: AgentState) -> AgentState:
                 if relaxed_ids:
                     products = [p for p in all_faiss_products if p.id in relaxed_ids]
                     if products and not relaxed_constraints:
-                        relaxed_constraints.append(f"品牌「{brand_filter}」" if brand_filter else "")
+                        if brand_filter:
+                            relaxed_constraints.append(f"品牌「{brand_filter}」")
             
             if relaxed_constraints:
                 state.parallel_results["_relaxed_constraints"] = relaxed_constraints
@@ -364,58 +368,15 @@ def search_node(state: AgentState) -> AgentState:
                 else:
                     state.parallel_results["_no_results"] = True
         # ── Enrich from DB + weighted ranking ──
-        if products:
-            from products.models import Product as _Product
-            pids = [p.id for p in products]
-            db_products = {p.id: p for p in _Product.objects.filter(id__in=pids)}
-            enriched = []
-            for p in products:
-                dbp = db_products.get(p.id)
-                if dbp:
-                    dbp.relevance = p.relevance  # carry forward FAISS relevance
-                    enriched.append(dbp)
-            if enriched:
-                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k, skip_diversity=bool(brand_filter) or mode == "exact")
-                state.parallel_results["_score_breakdown"] = score_breakdown
-                # Convert back to ProductRef with final scores
-                products = [
-                    ProductRef(
-                        id=p.id,
-                        name=p.name,
-                        price=float(p.price),
-                        category=p.category.name if p.category else "",
-                        relevance=getattr(p, 'relevance', 0.5),
-                    )
-                    for p in enriched
-                ]
+        products, score_breakdown = _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=bool(brand_filter) or mode == "exact")
+        if score_breakdown:
+            state.parallel_results["_score_breakdown"] = score_breakdown
     elif strategy_dec.strategy == SearchStrategy.SQL_ONLY:
-        # SQL_ONLY: use structured results as primary
         products = structured_products
         docs = []
-        # ── Enrich from DB + weighted ranking for SQL_ONLY ──
-        if products:
-            from products.models import Product as _Product
-            pids = [p.id for p in products]
-            db_products = {p.id: p for p in _Product.objects.filter(id__in=pids)}
-            enriched = []
-            for p in products:
-                dbp = db_products.get(p.id)
-                if dbp:
-                    dbp.relevance = p.relevance
-                    enriched.append(dbp)
-            if enriched:
-                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k, skip_diversity=bool(brand_filter) or mode == "exact")
-                state.parallel_results["_score_breakdown"] = score_breakdown
-                products = [
-                    ProductRef(
-                        id=p.id,
-                        name=p.name,
-                        price=float(p.price),
-                        category=p.category.name if p.category else "",
-                        relevance=getattr(p, 'relevance', 0.5),
-                    )
-                    for p in enriched
-                ]
+        products, score_breakdown = _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=bool(brand_filter) or mode == "exact")
+        if score_breakdown:
+            state.parallel_results["_score_breakdown"] = score_breakdown
 
     # ── Store results ────────────────────────────────────────
     state.retrieved_products = products
@@ -520,6 +481,33 @@ def _build_doc_refs(products: list[ProductRef]) -> list[DocRef]:
         ))
 
     return docs
+
+
+def _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=False):
+    """Enrich FAISS results with DB data, rank, convert to ProductRef."""
+    if not products:
+        return [], []
+    from products.models import Product as _Product
+    pids = [p.id for p in products]
+    db_products = {p.id: p for p in _Product.objects.filter(id__in=pids)}
+    enriched = []
+    for p in products:
+        dbp = db_products.get(p.id)
+        if dbp:
+            dbp.relevance = p.relevance
+            enriched.append(dbp)
+    if not enriched:
+        return products, None
+    enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k, skip_diversity)
+    products = [
+        ProductRef(
+            id=p.id, name=p.name, price=float(p.price),
+            category=p.category.name if p.category else "",
+            relevance=getattr(p, 'relevance', 0.5),
+        )
+        for p in enriched
+    ]
+    return products, score_breakdown
 
 
 def _rank_products(products, search_plan: dict, top_k: int = 10, skip_diversity: bool = False):

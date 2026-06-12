@@ -4,9 +4,12 @@ Response Node — format final output for the user.
 I/O Contract:
   Input:  ResponseNodeInput  (final_response, ranked_items, error)
   Output: ResponseNodeOutput (formatted_response)
-  side_effect: none (pure formatting)
+  side_effect: LLM explanation (best-effort, non-blocking)
 """
 from ..state import AgentState
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def response_node(state: AgentState) -> AgentState:
@@ -38,7 +41,9 @@ def response_node(state: AgentState) -> AgentState:
                 "question": slot_def.question,
                 "options": slot_def.options,
             }
-        return state
+            return state
+        # slot_def not found — skip to next missing field or fall through
+        state.missing_fields.pop(0)
 
     elif state.ranked_items or state.tool_results.get("products"):
         # Branch 2: EXPLAIN + PRODUCT — recommendations with rationale
@@ -50,6 +55,22 @@ def response_node(state: AgentState) -> AgentState:
             all_reasons.update(item.reasons)
         if all_reasons:
             parts.append(f"\n💡 推荐理由: {', '.join(sorted(all_reasons)[:5])}")
+
+        # ── LLM explanation (best-effort, non-blocking) ──
+        score_breakdown = state.parallel_results.get("_score_breakdown", [])
+        if products and score_breakdown:
+            try:
+                explanation = _generate_explanation(
+                    state.user_query or "",
+                    products[:3],
+                    score_breakdown[:3],
+                )
+                if explanation:
+                    state.parallel_results["_llm_explanation"] = explanation
+                    parts.append(f"\n💡 {explanation}")
+            except Exception:
+                pass
+
         state.final_response = "\n".join(parts)
         state.ui_message = f"为你找到 {count} 款相关商品"
         state.current_node = "response"
@@ -71,3 +92,33 @@ def response_node(state: AgentState) -> AgentState:
         state.current_node = "response"
         state.steps_done.append("response")
         return state
+
+
+def _generate_explanation(query: str, products: list[dict],
+                          score_breakdown: list[dict]) -> str | None:
+    """Generate a one-sentence LLM explanation for the top results."""
+    from agents.core.llm_client import get_llm_client
+
+    top_products = []
+    for i, p in enumerate(products):
+        sb = score_breakdown[i] if i < len(score_breakdown) else {}
+        comps = sb.get("components", {})
+        top_products.append(
+            f"{i+1}. {p.get('product_name', p.get('name', ''))}"
+            f" | ¥{p.get('price', '?')} | 评分{p.get('rating', '?')}"
+            f" | 语义匹配:{comps.get('product_embedding', 0.0):.2f}"
+            f" | 价格契合:{comps.get('price_fit', 0.0):.2f}"
+            f" | 好评度:{comps.get('sentiment', 0.0):.2f}"
+        )
+
+    prompt = f"""用户搜索: {query}
+推荐商品:
+{chr(10).join(top_products)}
+
+请用一句话总结为什么推荐这些商品，突出与用户搜索最相关的特点。不要超过50字。"""
+
+    client = get_llm_client()
+    resp = client.chat(prompt, max_tokens=80)
+    if resp and resp.text:
+        return resp.text.strip()
+    return None

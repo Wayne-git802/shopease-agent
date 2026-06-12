@@ -47,20 +47,6 @@ class SearchNodeOutput(BaseModel):
     # side_effect: FAISS query, SQL keyword lookup, embedding cache write
 
 
-# ── Recommend Node ────────────────────────────────────────────────
-
-class RecommendNodeInput(BaseModel):
-    products: list[ProductRef]       # from search
-    user_id: int | None = None
-    user_memory: UserMemory | None = None
-
-class RecommendNodeOutput(BaseModel):
-    ranked_items: list[RankedItem]
-    score_distribution: dict[str, float]   # {source: mean_score}
-
-    # side_effect: update user preference events
-
-
 # ── Order Node ────────────────────────────────────────────────────
 
 class OrderNodeInput(BaseModel):
@@ -73,18 +59,6 @@ class OrderNodeOutput(BaseModel):
     status: str                    # "ok" | "error"
 
     # side_effect: deterministic — no LLM call, no API call beyond DB
-
-
-# ── Ops Node ──────────────────────────────────────────────────────
-
-class OpsNodeInput(BaseModel):
-    check_type: str = "health"     # "health" | "alerts" | "report"
-
-class OpsNodeOutput(BaseModel):
-    health: dict[str, Any] = {}
-    alerts: list[dict[str, Any]] = []
-
-    # side_effect: deterministic — DB queries only
 
 
 # ── Analytics Node ─────────────────────────────────────────────────
@@ -123,18 +97,6 @@ class ResponseNodeInput(BaseModel):
 
 class ResponseNodeOutput(BaseModel):
     formatted_response: str        # final user-facing text/markdown
-
-
-# ── Merge Node ────────────────────────────────────────────────────
-
-class MergeNodeInput(BaseModel):
-    retrieved_products: list[ProductRef] = []
-    ranked_items: list[RankedItem] = []
-    parallel_results: dict[str, Any] = {}
-
-class MergeNodeOutput(BaseModel):
-    ranked_items: list[RankedItem]     # deduped + fused + reranked
-    score_distribution: dict[str, float]
 
 
 # ── Eval Hook type ────────────────────────────────────────────────

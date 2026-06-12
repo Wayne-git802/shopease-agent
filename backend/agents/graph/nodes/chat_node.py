@@ -31,21 +31,6 @@ def chat_node(state: AgentState) -> AgentState:
         {"role": "system", "content": _SYSTEM_PROMPT},
     ]
 
-    # Knowledge RAG injection — search docs for relevant policy/FAQ
-    try:
-        from agents.rag.knowledge_store import get_knowledge_store
-        ks = get_knowledge_store()
-        docs = ks.search(state.user_query, top_k=2)
-        if docs:
-            knowledge_context = "\n\n".join([
-                f"[来源: {d['metadata']['source']} - {d['metadata'].get('section', '')}]\n{d['content']}"
-                for d in docs
-            ])
-            messages.insert(1, {"role": "system",
-                "content": f"以下是与用户问题相关的平台政策文档，请基于这些信息回答。如果文档中没有相关信息，请如实说明。\n\n{knowledge_context}"})
-    except Exception:
-        logger.warning("Knowledge RAG injection failed, continuing without docs", exc_info=True)
-
     # Product RAG injection — inject retrieved product specs for comparison
     if state.retrieved_docs:
         product_context = "\n".join([
@@ -88,41 +73,6 @@ def chat_node(state: AgentState) -> AgentState:
     state.ui_message = ""
     state.steps_done.append("chat")
     state.current_node = "chat"
-
-    # ── LLM explanation for search results ──
-    products = state.tool_results.get("products", [])
-    score_breakdown = state.parallel_results.get("_score_breakdown", [])
-
-    if products and score_breakdown:
-        try:
-            # Build a compact prompt with top-3 products
-            top_products = []
-            for i, p in enumerate(products[:3]):
-                sb = score_breakdown[i] if i < len(score_breakdown) else {}
-                comps = sb.get("components", {})
-                top_products.append(
-                    f"{i+1}. {p.get('product_name', p.get('name', ''))}"
-                    f" | ¥{p.get('price', '?')} | 评分{p.get('rating', '?')}"
-                    f" | 语义匹配:{comps.get('product_embedding', 0):.2f}"
-                    f" | 价格契合:{comps.get('price_fit', 0):.2f}"
-                    f" | 好评度:{comps.get('sentiment', 0):.2f}"
-                )
-
-            user_query = state.user_query or ""
-            prompt = f"""用户搜索: {user_query}
-推荐商品:
-{chr(10).join(top_products)}
-
-请用一句话总结为什么推荐这些商品，突出与用户搜索最相关的特点。不要超过50字。"""
-
-            explanation_resp = client.chat(prompt, max_tokens=80)
-            if explanation_resp and explanation_resp.text:
-                explanation = explanation_resp.text.strip()
-                if explanation:
-                    state.parallel_results["_llm_explanation"] = explanation
-                    state.final_response = (state.final_response or "") + "\n\n💡 " + explanation
-        except Exception:
-            pass  # Non-critical, don't block response
 
     return state
 

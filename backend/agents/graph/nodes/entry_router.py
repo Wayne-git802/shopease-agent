@@ -21,13 +21,14 @@ from ..state import AgentState
 
 logger = logging.getLogger(__name__)
 
-_CONSTRAINT_NODE_MAP: dict[str, str] = {"sort": "search", "recommend": "recommend"}
+_CONSTRAINT_NODE_MAP: dict[str, str] = {"sort": "search", "recommend": "search"}
 VALID_INTENTS = {"search", "recommend", "order", "analytics", "chat"}
 
 
 def entry_router(state: AgentState) -> Command:
     """Dispatch to the correct graph node.  Reference resolution runs first."""
 
+    state.steps_done.append("entry_router")
     query = state.user_query or ""
     session_id = state.session_id or ""
 

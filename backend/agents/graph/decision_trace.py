@@ -191,7 +191,6 @@ def snapshot_signals(user_id: int | None = None, window_days: int = 90) -> Signa
         top_categories = get_user_signals(user_id)
 
         # Count active (within window)
-        from .feedback.signal_store import _decay_weight
         from agents.models import StandardizedSignal
         from agents.graph.contracts.signal_contract import SignalType
         from datetime import timedelta
