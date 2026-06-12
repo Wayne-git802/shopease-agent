@@ -76,6 +76,7 @@ def run(ctx: PipelineContext) -> AgentResult:
     if resolved_ref is not None:
         target = getattr(resolved_ref, 'target', None)
         if target and target.product_ids:
+            target.action = resolved_ref.action.value if resolved_ref.action else None
             agent_ctx.reference = target
         cap_str = getattr(resolved_ref, 'capability', None)
         if cap_str:

@@ -41,8 +41,14 @@ class ProductReference:
 
 @dataclass
 class ReferenceTarget:
-    """What the user is referring to — supports single and multi-product references."""
+    """What the user is referring to — supports single and multi-product references.
+
+    action: ReferenceAction value string (e.g. "add_to_cart", "purchase").
+            Set by execution layer when mapping from ResolvedReference.
+            Agent layer reads this — does NOT import ReferenceAction enum.
+    """
     product_ids: list[int] = field(default_factory=list)
+    action: str | None = None
 
 
 @dataclass

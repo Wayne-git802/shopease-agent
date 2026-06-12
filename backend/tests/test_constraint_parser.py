@@ -148,33 +148,33 @@ class TestExtractBrand:
 class TestExtractBudgetRange:
     def test_explicit_range(self):
         lo, hi = _extract_budget_range("1000-3000手机", "1000-3000手机")
-        assert lo == 850.0   # 1000 * 0.85
-        assert hi == 3450.0  # 3000 * 1.15
+        assert lo == pytest.approx(850.0)    # 1000 * 0.85
+        assert hi == pytest.approx(3450.0)   # 3000 * 1.15
 
     def test_under_english(self):
         lo, hi = _extract_budget_range("under 500 headphones", "under 500 headphones")
         assert lo is None
-        assert hi == 650.0    # 500 * 1.3
+        assert hi == pytest.approx(650.0)
 
     def test_within_english(self):
         lo, hi = _extract_budget_range("within 2000 laptop", "within 2000 laptop")
         assert lo is None
-        assert hi == 2600.0   # 2000 * 1.3
+        assert hi == pytest.approx(2600.0)
 
     def test_以内_chinese(self):
         lo, hi = _extract_budget_range("500元以内的耳机", "500元以内的耳机")
         assert lo is None
-        assert hi == 650.0
+        assert hi == pytest.approx(650.0)
 
     def test_以上_chinese(self):
         lo, hi = _extract_budget_range("1000元以上的手机", "1000元以上的手机")
-        assert lo == 700.0    # 1000 * 0.7
+        assert lo == pytest.approx(700.0)
         assert hi is None
 
     def test_以下_chinese(self):
         lo, hi = _extract_budget_range("300以下", "300以下")
         assert lo is None
-        assert hi == 390.0    # 300 * 1.3
+        assert hi == pytest.approx(390.0)
 
     def test_no_budget_returns_none(self):
         lo, hi = _extract_budget_range("推荐手机", "推荐手机")

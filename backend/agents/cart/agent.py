@@ -409,6 +409,22 @@ class CartAgent:
         return bool(commerce and commerce.intent == "cart" and commerce.confidence >= 0.3)
 
     def execute(self, ctx: AgentContext) -> AgentResult:
+        # ── Reference fast path: routing layer already resolved ──
+        ref = ctx.reference
+        if ref and ref.action == "add_to_cart" and ref.product_ids:
+            logger.info("reference_hit action=add_to_cart product_id=%s query=%s",
+                        ref.product_ids[0], ctx.query[:80])
+            result = add_to_cart(ctx.user_id, ref.product_ids[0])
+            count = get_cart_count(ctx.user_id)
+            final = build_added(result, count)
+            # Update session state
+            state = _load_state(ctx.session_id)
+            state.current_step = CartStep.VIEWING_CART
+            _save_state(ctx.session_id, state)
+            return AgentResult(status="success", response=final)
+
+        # ── Full pipeline: intent parsing + context resolution ──
+        logger.info("reference_miss action=add_to_cart query=%s", ctx.query[:80])
         result = _run(ctx.query, ctx.user_id, ctx.session_id, ctx.display_id)
 
         # Handoff to Purchase — explicit condition
