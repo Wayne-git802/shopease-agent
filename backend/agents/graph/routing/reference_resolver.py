@@ -46,9 +46,11 @@ class ReferenceTarget:
     action: ReferenceAction value string (e.g. "add_to_cart", "purchase").
             Set by execution layer when mapping from ResolvedReference.
             Agent layer reads this — does NOT import ReferenceAction enum.
+    quantity: number of units the user wants (e.g. "买3个" → 3). Default 1.
     """
     product_ids: list[int] = field(default_factory=list)
     action: str | None = None
+    quantity: int = 1
 
 
 @dataclass
@@ -91,6 +93,17 @@ _ORDINAL_PATTERN = re.compile(
     r'第\s*([\d一二两三四五六七八九十]+)\s*[个款]'
 )
 
+# Unit words for quantity extraction — common e-commerce measure words
+_UNIT_WORDS: set[str] = {"个", "件", "台", "副", "盒", "箱", "包"}
+
+# Quantity extraction: "3个", "5件", "两副", "十台" — independent of ordinal/action.
+# Negative lookbehind (?<!第) prevents matching the ordinal's unit word
+# (e.g. in "第二个" the "个" belongs to the ordinal, not a quantity).
+_UNIT_CHARS = "".join(_UNIT_WORDS)
+_QUANTITY_PATTERN = re.compile(
+    rf'(?<!第)(\d+|[一两二三四五六七八九十]+)\s*[{_UNIT_CHARS}]'
+)
+
 # Shared keyword lists — also used by classifier._infer_action_from_clarification_reply
 ACTION_KEYWORDS: dict[ReferenceAction, list[str]] = {
     ReferenceAction.PURCHASE:    ["购买", "下单", "买", "立即购买", "我要"],
@@ -102,15 +115,14 @@ _ACTION_PATTERNS: list[tuple[re.Pattern, ReferenceAction]] = [
     (re.compile(r'(买|购买|下单|我要)\s*(?:第\s*)?(\d+)\s*$'), ReferenceAction.PURCHASE),
     (re.compile(r'(加购物车|加入购物车|加购)\s*(?:第\s*)?(\d+)\s*$'), ReferenceAction.ADD_TO_CART),
     (re.compile(r'(看看|查看|详情|介绍|什么样)\s*(?:第\s*)?(\d+)\s*$'), ReferenceAction.VIEW_DETAIL),
-    (re.compile(r'(买|购买|下单|我要)\s*第'), ReferenceAction.PURCHASE),
-    (re.compile(r'(加购物车|加入购物车|加购)\s*第'), ReferenceAction.ADD_TO_CART),
-    (re.compile(r'(看看|查看|详情|介绍|什么样)\s*第'), ReferenceAction.VIEW_DETAIL),
+    # Fallback patterns: action + intervening content (quantity, etc.) + ordinal.
+    # Non-greedy .*? tolerates "买3个第二个" / "加购物车两个第一个" etc.
+    (re.compile(r'(买|购买|下单|我要).*?第'), ReferenceAction.PURCHASE),
+    (re.compile(r'(加购物车|加入购物车|加购).*?第'), ReferenceAction.ADD_TO_CART),
+    (re.compile(r'(看看|查看|详情|介绍|什么样).*?第'), ReferenceAction.VIEW_DETAIL),
 ]
 
-_NUM_MAP: dict[str, int] = {
-    "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
-    "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
-}
+from ..utils import CN_DIGIT as _NUM_MAP
 
 # AgentCapability 在 pipeline 模块，用字符串做 lazy mapping
 _ACTION_CAPABILITY_MAP: dict[ReferenceAction, str] = {
@@ -150,12 +162,32 @@ def resolve_reference(query: str, ctx: ReferenceContext) -> ResolvedReference:
             action = act
             break
 
-    # ── 3. Lookup product from context ──
+    # Fallback: ordinal present but no structured pattern matched (e.g.
+    # reversed-order "第二个买3个" where ordinal precedes action keyword).
+    # Check for bare action keywords anywhere in the query, position-independent.
+    if action is None:
+        for act, keywords in ACTION_KEYWORDS.items():
+            if any(kw in query for kw in keywords):
+                action = act
+                break
+
+    # ── 3. Extract quantity (independent step, not coupled to action/ordinal) ──
+    # Handles "买3个第二个", "第二个买3个", "买第二个3个" equally.
+    quantity: int = 1
+    qty_match = _QUANTITY_PATTERN.search(query)
+    if qty_match:
+        qty_str = qty_match.group(1)
+        if qty_str.isdigit():
+            quantity = int(qty_str)
+        else:
+            quantity = _NUM_MAP.get(qty_str, 1)
+
+    # ── 4. Lookup product from context ──
     product = None
     if ctx.products and 0 <= ref_idx < len(ctx.products):
         product = ctx.products[ref_idx]
 
-    # ── 4. Determine clarification reason ──
+    # ── 5. Determine clarification reason ──
     clarification_reason: ClarificationReason | None = None
     if product is None:
         clarification_reason = ClarificationReason.PRODUCT_NOT_FOUND
@@ -164,7 +196,10 @@ def resolve_reference(query: str, ctx: ReferenceContext) -> ResolvedReference:
         action = ReferenceAction.VIEW_DETAIL
 
     return ResolvedReference(
-        target=ReferenceTarget(product_ids=[product.product_id] if product else []),
+        target=ReferenceTarget(
+            product_ids=[product.product_id] if product else [],
+            quantity=quantity,
+        ),
         product_name=product.product_name if product else "",
         confidence=1.0 if product else 0.0,
         action=action,
@@ -246,6 +281,37 @@ def _self_test() -> None:
     assert r.capability is None
     assert r.clarification_reason == ClarificationReason.PRODUCT_NOT_FOUND
     print("PASS: 第一个 (empty context)")
+
+    # Test 8: compound reference — quantity + ordinal ("买3个第二个")
+    r = resolve_reference("买3个第二个", ctx)
+    assert r.action == ReferenceAction.PURCHASE, f"Expected PURCHASE, got {r.action}"
+    assert r.target.product_ids == [102], f"Expected [102], got {r.target.product_ids}"
+    assert r.target.quantity == 3, f"Expected quantity=3, got {r.target.quantity}"
+    assert r.capability == "purchase"
+    print("PASS: 买3个第二个")
+
+    # Test 9: reversed order — ordinal before quantity ("第二个买3个")
+    r = resolve_reference("第二个买3个", ctx)
+    assert r.action == ReferenceAction.PURCHASE, f"Expected PURCHASE, got {r.action}"
+    assert r.target.product_ids == [102]
+    assert r.target.quantity == 3, f"Expected quantity=3, got {r.target.quantity}"
+    print("PASS: 第二个买3个")
+
+    # Test 10: Chinese numeral quantity ("买两个第二个")
+    r = resolve_reference("买两个第二个", ctx)
+    assert r.action == ReferenceAction.PURCHASE, f"Expected PURCHASE, got {r.action}"
+    assert r.target.quantity == 2, f"Expected quantity=2, got {r.target.quantity}"
+    print("PASS: 买两个第二个")
+
+    # Test 11: unit word variety — 耳机用"副" ("买3副第二个")
+    r = resolve_reference("买3副第二个", ctx)
+    assert r.target.quantity == 3, f"Expected quantity=3, got {r.target.quantity}"
+    print("PASS: 买3副第二个")
+
+    # Test 12: no quantity → default 1 ("买第二个")
+    r = resolve_reference("买第二个", ctx)
+    assert r.target.quantity == 1, f"Expected quantity=1, got {r.target.quantity}"
+    print("PASS: 买第二个 (quantity default=1)")
 
     print("\nAll tests passed!")
 

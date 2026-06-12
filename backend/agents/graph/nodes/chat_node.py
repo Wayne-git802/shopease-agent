@@ -8,7 +8,7 @@ I/O Contract:
 """
 from ..state import AgentState, NodeTrace, ChatMessage
 from ..contracts import ChatNodeInput, ChatNodeOutput
-from ..cost_router import CostRouter, estimate_tokens
+from ..cost_router import DEFAULT_MODEL, estimate_tokens
 
 import time
 import logging
@@ -21,7 +21,7 @@ def chat_node(state: AgentState) -> AgentState:
     start = time.time()
 
     # Select model per-node
-    model = CostRouter().select("chat", estimate_tokens(state))
+    model = DEFAULT_MODEL
 
     # Build messages from history
     from agents.core.llm_client import get_llm_client

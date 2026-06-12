@@ -79,7 +79,7 @@ def classify(ctx: PipelineContext) -> None:
     ref = ctx.state.parallel_results.get("_resolved_ref") if ctx.state else None
     if ref is not None and ref.capability is not None:
         from ..commerce_intent import IntentResult
-        ctx.commerce_result = IntentResult(intent=ref.capability, confidence=1.0)
+        ctx.commerce_result = IntentResult(intent=ref.capability, confidence=1.0, fallback="chat")
         ctx.conv_state = conv_state
         ctx.final_route = RouteDecision(
             intent=ref.capability, confidence=1.0,
@@ -256,11 +256,24 @@ def apply_signals(commerce_result, signals) -> "IntentScore":
 
 
 def _build_final_route(l0_route, l1_result=None) -> RouteDecision:
-    """Single truth source from L0 + L1 + signals."""
+    """Single truth source from L0 + L1 + signals.
+
+    Confidence=0 means "no keyword matched" — NOT "definitely not commerce."
+    A product name like "Soundmagic PL30" will score 0 in L1 but should
+    still reach search_node (the real discriminator via FAISS).
+
+    We only kill the commerce path when L1 returns a non-commerce intent
+    (which doesn't happen with the current SIGNALS — L1 always returns
+    one of search/recommend/explore/cart/order/purchase/analytics).
+    """
     if l1_result is None:
         return l0_route
 
-    if l1_result.confidence <= 0.0:
+    # Confidence ≤ 0 with no commerce intent → genuine chat fallback.
+    # But confidence ≤ 0 with a commerce intent (e.g. "search") means
+    # "probably a product query, just couldn't keyword-match it."
+    # Let it through — search_node + FAISS will be the final judge.
+    if l1_result.confidence <= 0.0 and l1_result.intent == "chat":
         return RouteDecision(
             intent="chat",
             confidence=0.6,

@@ -68,8 +68,7 @@ CONFIRM_WORDS: set[str] = {
 
 # Slot index patterns: "第2个", "第二个", "2", "二", "opt_2"
 _SLOT_INDEX_RE = re.compile(r'(?:第\s*)?(\d+|一|二|三|四|五|六|七|八|九|十)\s*(?:个|项|种|条)?')
-_CN_DIGIT = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
-             "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+from .utils import CN_DIGIT as _CN_DIGIT
 
 # Pronoun/ack words — low-information inputs that likely continue previous context
 PRONOUN_OR_ACK: set[str] = {

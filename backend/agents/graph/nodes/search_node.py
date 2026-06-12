@@ -26,7 +26,7 @@ from ..contracts.search_plan import (
     VALID_DIRECTIONS,
     normalize_query,
 )
-from ..cost_router import CostRouter, estimate_tokens
+from ..cost_router import estimate_tokens
 from ..rag.retriever import get_retriever
 
 # ── Constraint relaxation ─────────────────────────────────────

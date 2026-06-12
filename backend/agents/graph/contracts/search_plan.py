@@ -133,18 +133,7 @@ RECOMMEND_TRIGGERS: list[str] = [
 
 # ── Query normalization ────────────────────────────────────────
 
-def normalize_query(query: str) -> str:
-    """Fullwidth→halfwidth, strip, lowercase."""
-    result = []
-    for ch in query:
-        code = ord(ch)
-        if 0xFF01 <= code <= 0xFF5E:
-            result.append(chr(code - 0xFEE0))
-        elif code == 0x3000:
-            result.append(" ")
-        else:
-            result.append(ch)
-    return " ".join("".join(result).split()).lower()
+from ..utils import normalize_query  # canonical implementation, re-exported here
 
 
 # ── Budget band parsing ────────────────────────────────────────

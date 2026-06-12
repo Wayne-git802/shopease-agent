@@ -57,7 +57,7 @@ def entry_router(state: AgentState) -> Command:
                 "current_node": "entry_router",
                 "ui_message": msg,
                 "parallel_results": {
-                    **state.parallel_results,
+                    **state.parallel_results.model_dump(),
                     "_clarify_reference": True,
                 },
             })

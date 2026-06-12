@@ -131,7 +131,13 @@ def _classify_intent(query: str) -> dict:
         commerce_kw = _KEYWORDS.get("commerce", set())
         if len(q) <= 4 and not any(kw in q for kw in commerce_kw):
             return {"intent": "greeting", "confidence": 0.6, "candidates": []}
-        return {"intent": "unclear", "confidence": 0.5, "candidates": []}
+        # Non-gibberish, >4 chars, no keyword matched → likely a product name
+        # or model number (e.g. "Soundmagic PL30").  Route as commerce with
+        # low confidence — search_node is the final discriminator via FAISS.
+        # If FAISS returns nothing, the response layer handles it gracefully.
+        # We err toward search rather than chat: a spurious FAISS lookup is
+        # cheaper than a user believing the system cannot find their product.
+        return {"intent": "commerce", "confidence": 0.3, "candidates": []}
     if len(candidates) == 1:
         return {"intent": candidates[0], "confidence": 0.9, "candidates": candidates}
 

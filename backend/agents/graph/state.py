@@ -85,6 +85,100 @@ class NodeTrace(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
 
 
+# ── ParallelResults — typed container replacing dict[str, Any] ──────
+
+class ParallelResults(BaseModel):
+    """Typed key:value store for all parallel execution context.
+
+    Replaces the ad-hoc dict[str, Any] that accumulated 30+ untyped keys.
+    Every field has a default so nodes only set what they need.
+    """
+    model_config = {"extra": "allow"}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_keys(cls, data: Any) -> Any:
+        """Map old '_underscored' dict keys to clean attribute names."""
+        if isinstance(data, dict):
+            remapped = {}
+            extras = {}
+            for k, v in data.items():
+                clean = k.lstrip("_") if k.startswith("_") else k
+                if clean in cls.model_fields:
+                    remapped[clean] = v
+                else:
+                    extras[k] = v
+            remapped.update(extras)
+            return remapped
+        return data
+
+    # ── Search plan ──
+    search_plan: dict = Field(default_factory=dict)
+    search_plan_raw: Any = None
+    search_phase_detail: str = ""
+    search_phase_label: str = ""
+
+    # ── Retrieval ──
+    retrieval_mode: str = ""
+    search_top_k: int = 10
+    search_strategy: str = ""
+    search_strategy_decision: dict = Field(default_factory=dict)
+    score_breakdown: list = Field(default_factory=list)
+    structured_products: list = Field(default_factory=list)
+
+    # ── Constraints ──
+    relaxed_constraints: list = Field(default_factory=list)
+    no_results: bool = False
+
+    # ── Reference resolution ──
+    resolved_ref: Any = None
+    clarify_reference: bool = False
+    clarify_answer: str = ""
+    collected_slots: dict = Field(default_factory=dict)
+
+    # ── UX hints ──
+    show_budget_hint: bool = False
+    show_clarify_hint: bool = False
+    llm_explanation: str = ""
+
+    # ── Validation / trace ──
+    validator_decisions: dict = Field(default_factory=dict)
+    decision_trace: Any = None
+    feedback_categories: list = Field(default_factory=list)
+
+    # ── Signals ──
+    conversation_signals: dict = Field(default_factory=dict)
+    intent_score: dict = Field(default_factory=dict)
+
+    # ── Routing context ──
+    query_type: str = ""
+    recommend_type: str = ""
+    similar_product_id: str = ""
+    display_id: str = ""
+
+    # ── Order / analytics context ──
+    order_action: str = ""
+    order_id: int | None = None
+    analytics_days: int = 7
+
+    # ── Backward-compatible dict access ──
+    @staticmethod
+    def _key_to_attr(key: str) -> str:
+        return key.lstrip("_")
+
+    def __getitem__(self, key: str):
+        return getattr(self, self._key_to_attr(key))
+
+    def __setitem__(self, key: str, value) -> None:
+        setattr(self, self._key_to_attr(key), value)
+
+    def get(self, key: str, default=None):
+        return getattr(self, self._key_to_attr(key), default)
+
+    def __contains__(self, key: str) -> bool:
+        return hasattr(self, self._key_to_attr(key))
+
+
 # ── Main State ────────────────────────────────────────────────────
 
 class AgentState(BaseModel):
@@ -97,11 +191,11 @@ class AgentState(BaseModel):
     history: list[ChatMessage] = []
 
     # Routing
-    intent: str = ""              # "search"|"recommend"|"order"|"ops"|"chat"
+    intent: str = ""
     confidence: float = 0.0
-    routing_method: str = ""      # "fast" | "slow"
+    routing_method: str = ""
 
-    # Model selection (per-node, set by node itself via CostRouter)
+    # Model selection
     model_name: str = ""
 
     # Retrieval (RAG)
@@ -113,10 +207,10 @@ class AgentState(BaseModel):
 
     # Execution
     current_node: str = ""
-    ui_message: str = ""                # human-readable cognitive status
+    ui_message: str = ""
     steps_done: list[str] = []
     tool_results: dict[str, Any] = {}
-    parallel_results: dict[str, Any] = {}
+    parallel_results: ParallelResults = Field(default_factory=ParallelResults)
 
     # Normalized query (for caching / sort detection)
     normalized_query: str = ""
