@@ -351,6 +351,8 @@ def search_node(state: AgentState) -> AgentState:
             
             if relaxed_constraints:
                 state.parallel_results["_relaxed_constraints"] = relaxed_constraints
+            if not products:
+                state.parallel_results["_no_results"] = True
         # ── Enrich from DB + weighted ranking ──
         if products:
             from products.models import Product as _Product

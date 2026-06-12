@@ -54,6 +54,14 @@ def response_node(state: AgentState) -> AgentState:
         state.steps_done.append("response")
         return state
 
+    elif state.parallel_results.get("_no_results"):
+        # Branch 2.5: NO RESULTS — constraint relaxation failed
+        state.final_response = "没有找到相关商品，请尝试其他关键词"
+        state.ui_message = state.final_response
+        state.current_node = "response"
+        state.steps_done.append("response")
+        return state
+
     else:
         # Branch 3: PLAIN TEXT — chat/analytics response
         if not state.final_response:
