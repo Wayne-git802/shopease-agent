@@ -128,8 +128,8 @@ def _update_memory(user_id, state) -> None:
     if not user_id:
         return
     try:
-        from .memory_manager import memory_manager
-        memory_manager.update(state)
+        from .user_memory import user_memory
+        user_memory.update(state)
     except Exception:
         logger.warning("Memory update failed for user=%s", user_id, exc_info=True)
 

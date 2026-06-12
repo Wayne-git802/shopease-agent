@@ -185,4 +185,4 @@ class GlobalMemoryManager:
 
 
 # Singleton
-memory_manager = GlobalMemoryManager()
+user_memory = GlobalMemoryManager()

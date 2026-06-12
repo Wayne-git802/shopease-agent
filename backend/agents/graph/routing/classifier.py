@@ -134,6 +134,9 @@ def _dialogue_merge(ctx: PipelineContext, conv_state) -> None:
         conv_state.dialogue.expects_followup = False
         ctx.query = f"{conv_state.dialogue.last_user_query} {ctx.query}"
         conv_state.dialogue.injected_slot = ctx.query
+    elif len(ctx.query.strip()) <= 3 and not has_strong_intent(ctx.query):
+        # Short non-commerce follow-up ("hello", "ok", "no") -> don't merge
+        conv_state.dialogue.expects_followup = False
     else:
         ctx.query = f"{conv_state.dialogue.last_user_query} {ctx.query}"
         conv_state.dialogue.injected_slot = ctx.query

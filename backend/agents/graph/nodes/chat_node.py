@@ -33,7 +33,7 @@ def chat_node(state: AgentState) -> AgentState:
 
     # Knowledge RAG injection — search docs for relevant policy/FAQ
     try:
-        from ..rag.knowledge_store import get_knowledge_store
+        from agents.rag.knowledge_store import get_knowledge_store
         ks = get_knowledge_store()
         docs = ks.search(state.user_query, top_k=2)
         if docs:

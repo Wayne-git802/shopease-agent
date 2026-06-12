@@ -192,7 +192,7 @@ def search_node(state: AgentState) -> AgentState:
             _django_fp.setup()
             from agents.commerce.queries.product_query import ProductQuery
             try:
-                p = ProductQuery.purchasable().get(id=resolved_ref.product_id)
+                p = ProductQuery.purchasable().get(id=resolved_ref.target.product_ids[0])
                 from ..contracts.product import ProductRef as _PR
                 pr = _PR(
                     id=p.id, name=p.name, price=float(p.price or 0),
@@ -212,7 +212,7 @@ def search_node(state: AgentState) -> AgentState:
                 state.parallel_results["_search_phase_detail"] = f"查看商品：{p.name}"
                 return state
             except Exception:
-                logger.warning("VIEW_DETAIL fast path failed for product_id=%s", resolved_ref.product_id)
+                logger.warning("VIEW_DETAIL fast path failed for product_ids=%s", resolved_ref.target.product_ids)
 
     start = time.time()
 

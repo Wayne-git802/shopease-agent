@@ -56,8 +56,8 @@ class DefaultMemoryBackend:
     # ── User ────────────────────────────────────────────────────
 
     def recall_user(self, user_id: int) -> Any:
-        from agents.graph.memory_manager import memory_manager
-        return memory_manager.build(user_id)
+        from agents.graph.user_memory import user_memory
+        return user_memory.build(user_id)
 
     # ── Shared View ─────────────────────────────────────────────
 

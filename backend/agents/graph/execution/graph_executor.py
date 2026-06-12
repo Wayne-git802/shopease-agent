@@ -30,7 +30,17 @@ def execute(ctx: PipelineContext) -> AgentResult:
 
     plan = policy_plan(ctx.final_route, ctx.commerce_result)
 
-    # ── Template path ──
+    # Resolved reference: always use graph (entry_router needs to dispatch it)
+    from ..response_policy import ExecutionPlan, LLMPolicy
+    if ctx.state.parallel_results.get("_resolved_ref") is not None:
+        if plan.execution_mode in ("template", "llm_direct"):
+            plan = ExecutionPlan(
+                execution_mode="graph_full",
+                memory="none",
+                llm=LLMPolicy(max_tokens=2000, temperature=0.3, mode="graph_proxy"),
+            )
+
+    # Template path
     if plan.execution_mode == "template":
         return _execute_template(ctx)
 
@@ -161,7 +171,7 @@ def _execute_graph(ctx: PipelineContext, plan) -> AgentResult:
 # ═══════════════════════════════════════════════════════════════
 
 def _hydrate_memory(ctx: PipelineContext, plan) -> None:
-    from ..memory_manager import load_preferences, load_purchase_profile, memory_manager
+    from ..user_memory import load_preferences, load_purchase_profile, user_memory
 
     try:
         cache = getattr(ctx.state, '_memory_cache', None) or {}
@@ -182,7 +192,7 @@ def _hydrate_memory(ctx: PipelineContext, plan) -> None:
                 purchase_summary=cache["purchase"],
             )
         else:  # full
-            ctx.state.user_memory = memory_manager.build(uid)
+            ctx.state.user_memory = user_memory.build(uid)
 
         ctx.state._memory_cache = cache
     except Exception:
