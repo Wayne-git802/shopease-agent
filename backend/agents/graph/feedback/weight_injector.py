@@ -43,8 +43,7 @@ def modulate(
     # Negative signals (dismiss) are handled via NEGATIVE SignalType which
     # has negative value in SIGNAL_WEIGHTS. They flow through StandardizedSignal
     # but are excluded from ranking (RANKING_SIGNAL_TYPES only includes INTENT
-    # and CONVERSION).  Dismiss effects are applied in merge_node via diversity
-    # penalty, not here.
+    # and CONVERSION).  Dismiss effects are applied via diversity penalty in search_node.
     adjusted = base_score * (1.0 + boost)
 
     # Floor: don't push score below 0

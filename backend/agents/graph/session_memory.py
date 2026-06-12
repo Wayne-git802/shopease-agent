@@ -2,12 +2,12 @@
 Session Memory — DB-backed short-term state for multi-turn conversations.
 
 When the graph asks a clarifying question, it stores the pending state here.
-On the next invocation, entry_router and recommend_node recover context from
+On the next invocation, entry_router and search_node recover context from
 this store instead of re-classifying or restarting.
 
 Lifecycle:
   - Created by orchestrator after response_node returns a clarify_block
-  - Consumed by entry_router (skip intent classification) + recommend_node (enrich)
+  - Consumed by entry_router (skip intent classification) + search_node (enrich)
   - Cleared after a successful (non-clarify) response, or after TTL expires
 
 Storage: Django DB (was in-process dict).  Survives process restarts and

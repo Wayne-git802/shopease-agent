@@ -2,7 +2,7 @@
 Execution Validator — validates SearchPlan before node consumption.
 
 Placed between ConstraintParser and downstream nodes (search_node,
-recommend_node).  Does NOT re-derive intent — only validates and
+Does NOT re-derive intent — only validates and
 corrects unreasonable plan configurations that cause execution drift.
 
 Responsibilities:
