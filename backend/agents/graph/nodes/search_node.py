@@ -236,11 +236,14 @@ def search_node(state: AgentState) -> AgentState:
     brand_filter = plan_dict.get("brand")
     budget_lower = plan_dict.get("budget_lower")
     budget_upper = plan_dict.get("budget_upper")
+    category_filter = plan_dict.get("category_filter")
 
     sql_ids = None
-    if brand_filter or budget_lower is not None or budget_upper is not None:
+    if brand_filter or budget_lower is not None or budget_upper is not None or category_filter:
         from agents.commerce.queries.product_query import ProductQuery as _PQ
         qs = _PQ.purchasable()
+        if category_filter:
+            qs = qs.filter(category__name__icontains=category_filter)
         if brand_filter:
             qs = qs.filter(brand__iexact=brand_filter)
         if budget_lower is not None:
