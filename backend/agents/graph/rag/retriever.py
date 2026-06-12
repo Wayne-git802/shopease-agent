@@ -74,9 +74,22 @@ class Retriever(RetrieverProtocol):
         from products.models import Product
         from agents.commerce.queries.product_query import ProductQuery
 
-        products = ProductQuery.purchasable().values_list('id', 'name', 'description')
-        ids = [pid for pid, _, _ in products]
-        texts = [f"{name} {desc}" if desc else name for _, name, desc in products]
+        products = ProductQuery.purchasable().select_related('category').filter(
+            brand__isnull=False
+        ).values_list(
+            'id', 'name', 'description', 'price', 'brand', 'specs', 'category__name'
+        )[:500]
+        ids = []
+        texts = []
+        for pid, name, desc, price, brand, specs, cat_name in products:
+            ids.append(pid)
+            specs = specs or {}
+            use_case = specs.get('use_case', '')
+            brand = brand or ''
+            cat_name = cat_name or ''
+            desc = desc or ''
+            text = f"{name} | 类别:{cat_name} | 价格:{price} | 品牌:{brand} | 场景:{use_case} | {desc}"
+            texts.append(text)
         if ids:
             vectors = embed_batch(texts)
             get_store().build(ids, vectors)
@@ -93,7 +106,7 @@ class Retriever(RetrieverProtocol):
         for w in words:
             q_filter |= Q(name__icontains=w) | Q(description__icontains=w)
 
-        products = ProductQuery.purchasable().filter(q_filter)[:limit]
+        products = ProductQuery.purchasable().filter(q_filter, brand__isnull=False)[:limit]
         # Score = 1.0 for exact name match, 0.5 for partial
         results = []
         for p in products:

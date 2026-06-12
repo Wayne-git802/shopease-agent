@@ -89,6 +89,25 @@ CATEGORY_KEYWORDS: dict[str, str] = {
     "gaming": "gaming",
 }
 
+BRAND_ALIASES: dict[str, str] = {
+    "苹果": "Apple",
+    "华为": "Huawei",
+    "小米": "Xiaomi",
+    "三星": "Samsung",
+    "索尼": "Sony",
+    "戴尔": "Dell",
+    "dell": "Dell",
+    "联想": "Lenovo",
+    "罗技": "Logitech",
+    "logitech": "Logitech",
+    "apple": "Apple",
+    "huawei": "Huawei",
+    "xiaomi": "Xiaomi",
+    "samsung": "Samsung",
+    "sony": "Sony",
+    "lenovo": "Lenovo",
+}
+
 # Recommend-trigger keywords (if present → intent=recommend)
 RECOMMEND_TRIGGERS: list[str] = [
     r"推荐", r"recommend", r"suggest", r"建议", r"帮我选",
@@ -135,6 +154,19 @@ def parse_budget_band(amount: int, is_lower_bound: bool = False) -> str:
             return "1500+"
 
 
+def parse_budget_range(amount: int, is_lower_bound: bool = False) -> tuple[Optional[float], Optional[float]]:
+    """Parse budget into numeric range for SQL filtering.
+    
+    is_lower_bound=False: "500以内" → (None, 500 * 1.3)
+    is_lower_bound=True:  "1000以上" → (1000 * 0.7, None)
+    Returns (lower, upper) with soft margins.
+    """
+    if is_lower_bound:
+        return (amount * 0.7, None)
+    else:
+        return (None, amount * 1.3)
+
+
 # ── SearchPlan v2 ──────────────────────────────────────────────
 
 @dataclass
@@ -152,6 +184,9 @@ class SearchPlan:
     sort_by: Optional[str] = None          # "price" | "rating" | "popularity" | "created_at"
     direction: Optional[str] = None        # "asc" | "desc"
     category_filter: Optional[str] = None  # e.g. "headphones" — direct SQL WHERE
+    brand: Optional[str] = None            # brand filter (Apple/Huawei/etc)
+    budget_lower: Optional[float] = None   # price lower bound (actual numeric)
+    budget_upper: Optional[float] = None   # price upper bound (actual numeric)
 
     # ── Soft constraint (consumed by ranking phase) ──
     budget_band: Optional[str] = None      # "0-500" | "500-1500" | "1500+" | None
@@ -194,6 +229,9 @@ class SearchPlan:
             "sort_by": self.sort_by,
             "direction": self.direction,
             "category_filter": self.category_filter,
+            "brand": self.brand,
+            "budget_lower": self.budget_lower,
+            "budget_upper": self.budget_upper,
             "budget_band": self.budget_band,
             "show_clarify_hint": self.show_clarify_hint,
             "show_budget_hint": self.show_budget_hint,

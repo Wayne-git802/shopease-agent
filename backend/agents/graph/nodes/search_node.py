@@ -219,7 +219,7 @@ def search_node(state: AgentState) -> AgentState:
     query = state.user_query or ""
     normalized = normalize_query(query)
 
-    # Load SearchPlan from orchestrator (ConstraintParser + Validator)
+    # ── Load SearchPlan from orchestrator (ConstraintParser + Validator) ──
     plan_dict = state.parallel_results.get("_search_plan", {})
     plan = SearchPlan(
         intent=plan_dict.get("intent", QueryIntent.RECOMMEND),
@@ -232,6 +232,23 @@ def search_node(state: AgentState) -> AgentState:
         method=plan_dict.get("method", "regex"),
         detail=plan_dict.get("detail", ""),
     )
+
+    # ── SQL constraint filter (brand + price range) ─────────────
+    brand_filter = plan_dict.get("brand")
+    budget_lower = plan_dict.get("budget_lower")
+    budget_upper = plan_dict.get("budget_upper")
+
+    sql_ids = None
+    if brand_filter or budget_lower is not None or budget_upper is not None:
+        from agents.commerce.queries.product_query import ProductQuery as _PQ
+        qs = _PQ.purchasable()
+        if brand_filter:
+            qs = qs.filter(brand__iexact=brand_filter)
+        if budget_lower is not None:
+            qs = qs.filter(price__gte=budget_lower)
+        if budget_upper is not None:
+            qs = qs.filter(price__lte=budget_upper)
+        sql_ids = set(qs.values_list('id', flat=True)[:200])
 
     # ── P1: Strategy Selection ───────────────────────────────
     _commerce_conf = state.confidence if state.confidence > 0 else 0.5
@@ -276,6 +293,9 @@ def search_node(state: AgentState) -> AgentState:
     if strategy_dec.strategy in (SearchStrategy.SQL_ONLY, SearchStrategy.HYBRID):
         if plan.is_structured():
             structured_products = _execute_structured_sort(plan, limit=top_k)
+            # Apply SQL constraint filter to structured results
+            if sql_ids is not None:
+                structured_products = [p for p in structured_products if p.id in sql_ids]
 
     # Semantic path (SEMANTIC or HYBRID)
     if strategy_dec.strategy in (SearchStrategy.SEMANTIC, SearchStrategy.HYBRID):
@@ -285,10 +305,62 @@ def search_node(state: AgentState) -> AgentState:
             top_k=top_k,
             user_id=state.user_id,
         )
+        # ── Apply SQL constraint filter (FAISS∩SQL merge) ──
+        if sql_ids is not None:
+            products = [p for p in products if p.id in sql_ids]
+        # ── Enrich from DB + weighted ranking ──
+        if products:
+            from products.models import Product as _Product
+            pids = [p.id for p in products]
+            db_products = {p.id: p for p in _Product.objects.filter(id__in=pids)}
+            enriched = []
+            for p in products:
+                dbp = db_products.get(p.id)
+                if dbp:
+                    dbp.relevance = p.relevance  # carry forward FAISS relevance
+                    enriched.append(dbp)
+            if enriched:
+                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k)
+                state.parallel_results["_score_breakdown"] = score_breakdown
+                # Convert back to ProductRef with final scores
+                products = [
+                    ProductRef(
+                        id=p.id,
+                        name=p.name,
+                        price=float(p.price),
+                        category=p.category.name if p.category else "",
+                        relevance=getattr(p, 'relevance', 0.5),
+                    )
+                    for p in enriched
+                ]
     elif strategy_dec.strategy == SearchStrategy.SQL_ONLY:
         # SQL_ONLY: use structured results as primary
         products = structured_products
         docs = []
+        # ── Enrich from DB + weighted ranking for SQL_ONLY ──
+        if products:
+            from products.models import Product as _Product
+            pids = [p.id for p in products]
+            db_products = {p.id: p for p in _Product.objects.filter(id__in=pids)}
+            enriched = []
+            for p in products:
+                dbp = db_products.get(p.id)
+                if dbp:
+                    dbp.relevance = p.relevance
+                    enriched.append(dbp)
+            if enriched:
+                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k)
+                state.parallel_results["_score_breakdown"] = score_breakdown
+                products = [
+                    ProductRef(
+                        id=p.id,
+                        name=p.name,
+                        price=float(p.price),
+                        category=p.category.name if p.category else "",
+                        relevance=getattr(p, 'relevance', 0.5),
+                    )
+                    for p in enriched
+                ]
 
     # ── Store results ────────────────────────────────────────
     state.retrieved_products = products
@@ -393,3 +465,57 @@ def _build_doc_refs(products: list[ProductRef]) -> list[DocRef]:
         ))
 
     return docs
+
+
+def _rank_products(products, search_plan: dict, top_k: int = 10):
+    """Weighted ranking: embedding (0.40) + price_fit (0.20) + rating (0.20) + sentiment (0.20).
+
+    Args:
+        products: list of Product model instances (with .relevance attribute set)
+        search_plan: dict from SearchPlan.to_dict()
+        top_k: max results to return
+
+    Returns:
+        (ranked_products, score_breakdown) where ranked_products are Product instances
+        sorted by total score, and score_breakdown is a list of dicts with component scores.
+    """
+    if not products:
+        return [], []
+
+    budget_upper = search_plan.get("budget_upper")
+    budget_lower = search_plan.get("budget_lower")
+
+    ranked = []
+    for p in products:
+        embedding_score = float(getattr(p, 'relevance', 0.5))
+
+        price = float(getattr(p, 'price', 0) or 0)
+        if budget_upper is not None and budget_lower is not None:
+            mid = (budget_upper + budget_lower) / 2
+            dist = abs(price - mid)
+            price_fit = max(0.0, 1.0 - dist / max(mid, 0.01))
+        else:
+            price_fit = 1.0
+
+        rating_raw = float(getattr(p, 'rating', 3.0) or 3.0)
+        rating_norm = rating_raw / 5.0
+
+        specs = getattr(p, 'specs', {}) or {}
+        sentiment = float(specs.get('review_sentiment', 0.7))
+
+        total = 0.40 * embedding_score + 0.20 * price_fit + 0.20 * rating_norm + 0.20 * sentiment
+
+        p.relevance = total  # update relevance with final weighted score
+        ranked.append((p, total, {
+            "embedding_match": round(embedding_score, 3),
+            "price_fit": round(price_fit, 3),
+            "rating_norm": round(rating_norm, 3),
+            "sentiment": round(sentiment, 3),
+        }))
+
+    ranked.sort(key=lambda x: x[1], reverse=True)
+    top_ranked = ranked[:top_k]
+    return (
+        [r[0] for r in top_ranked],
+        [{"product_id": r[0].id, "total": round(r[1], 3), "components": r[2]} for r in top_ranked],
+    )

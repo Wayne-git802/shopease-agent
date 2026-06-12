@@ -176,6 +176,11 @@ class Product(models.Model):
     # Extended specs — JSON catch-all for low-frequency attributes
     specs = models.JSONField(default=dict, blank=True, verbose_name='扩展规格')
 
+    # ── Ranking features (Phase A hybrid search) ──
+    brand = models.CharField(max_length=100, null=True, blank=True, verbose_name='品牌')
+    rating = models.FloatField(null=True, blank=True, verbose_name='评分 1.0-5.0')
+    sales_rank = models.IntegerField(null=True, blank=True, verbose_name='热度排名(越小越热)')
+
     @property
     def stock(self):
         """从 Inventory 表读取库存"""

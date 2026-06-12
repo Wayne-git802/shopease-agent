@@ -31,6 +31,7 @@ from ..contracts.search_plan import (
     CATEGORY_KEYWORDS,
     normalize_query,
     parse_budget_band,
+    parse_budget_range,
     VALID_SORT_FIELDS,
     VALID_DIRECTIONS,
 )
@@ -68,7 +69,11 @@ def build_plan(frame: QueryFrame) -> SearchPlan:
     sort_by, direction = _extract_sort(normalized)
 
     # ── Step 2: Budget extraction ───────────────────────────────
-    budget_band = _extract_budget(normalized, original)
+    budget_lower, budget_upper = _extract_budget_range(normalized, original)
+    budget_band = _extract_budget_label(normalized, original)  # band label for UI
+
+    # ── Step 2.5: Brand extraction ────────────────────────────
+    brand = _extract_brand(normalized)
 
     # ── Step 3: Category extraction ─────────────────────────────
     category_filter = _extract_category(normalized)
@@ -107,6 +112,9 @@ def build_plan(frame: QueryFrame) -> SearchPlan:
         sort_by=sort_by,
         direction=direction,
         category_filter=category_filter,
+        brand=brand,
+        budget_lower=budget_lower,
+        budget_upper=budget_upper,
         budget_band=budget_band,
         strategy=strategy,
         semantic_query=normalized,
@@ -167,7 +175,7 @@ def _extract_sort(normalized: str) -> tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-def _extract_budget(normalized: str, original: str) -> Optional[str]:
+def _extract_budget_label(normalized: str, original: str) -> Optional[str]:
     """Extract budget band from query text.
 
     Handles:
@@ -211,12 +219,61 @@ def _extract_budget(normalized: str, original: str) -> Optional[str]:
     return None
 
 
+def _extract_budget_range(normalized: str, original: str) -> tuple[Optional[float], Optional[float]]:
+    """Extract numeric budget range (lower, upper) from query text.
+    
+    Uses the same regex patterns as _extract_budget_label but returns
+    numeric bounds via parse_budget_range instead of band labels.
+    """
+    # Pattern: explicit range like "1000-3000" / "1000到3000"
+    range_match = re.search(r"(\d+)\s*[-~到]\s*(\d+)", normalized)
+    if range_match:
+        lo = int(range_match.group(1))
+        hi = int(range_match.group(2))
+        return (lo * 0.85, hi * 1.15)
+
+    # Pattern: "under 500" / "below 500"
+    under_match = re.search(r"(?:under|below|under)\s*\$?(\d+)", normalized, re.IGNORECASE)
+    if under_match:
+        amt = int(under_match.group(1))
+        return parse_budget_range(amt, is_lower_bound=False)
+
+    # Pattern: "within 2000" / "budget 2000"
+    within_match = re.search(r"(?:within|budget|预算)\s*\$?(\d+)", normalized, re.IGNORECASE)
+    if within_match:
+        amt = int(within_match.group(1))
+        return parse_budget_range(amt, is_lower_bound=False)
+
+    # Pattern: "500以内" / "500元以下" / "500之内"
+    cn_match = re.search(r"(\d+)\s*元?\s*(?:以内|以下|之内)", normalized)
+    if cn_match:
+        amt = int(cn_match.group(1))
+        return parse_budget_range(amt, is_lower_bound=False)
+
+    # Pattern: "500以上" / "500元以上" / "500及以上" — lower bound
+    above_match = re.search(r"(\d+)\s*元?\s*(?:以上|及以上|之外|以外)", normalized)
+    if above_match:
+        amt = int(above_match.group(1))
+        return parse_budget_range(amt, is_lower_bound=True)
+
+    return None, None
+
+
 def _extract_category(normalized: str) -> Optional[str]:
     """Extract product category from query keywords.
 
     Returns category slug (English) or None.
     """
     for keyword, slug in CATEGORY_KEYWORDS.items():
+        if keyword in normalized:
+            return slug
+    return None
+
+
+def _extract_brand(normalized: str) -> Optional[str]:
+    """Extract brand from query using BRAND_ALIASES."""
+    from ..contracts.search_plan import BRAND_ALIASES
+    for keyword, slug in BRAND_ALIASES.items():
         if keyword in normalized:
             return slug
     return None
