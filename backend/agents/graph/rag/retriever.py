@@ -39,6 +39,10 @@ class Retriever(RetrieverProtocol):
         # ── Vector search ──
         q_vec = embed(query)
         vec_results = store.search(q_vec, k=top_k * 3)  # over-fetch for fusion
+        # Raw FAISS similarity for ranking (not RRF-compressed)
+        vec_scores: dict[int, float] = {}
+        for pid, dist in vec_results:
+            vec_scores[pid] = float(1.0 / (1.0 + dist))  # cosine-like [0,1]
 
         # ── Keyword search (MySQL LIKE) ──
         kw_results = self._keyword_search(query, top_k * 3)
@@ -48,6 +52,9 @@ class Retriever(RetrieverProtocol):
 
         # ── Build ProductRef from DB ──
         products = self._fetch_products(fused)
+        # Attach raw FAISS similarity for ranking
+        for p in products:
+            p.faiss_similarity = vec_scores.get(p.id, 0.0)
 
         # ── Review search ──
         review_scores = self._review_search(q_vec, top_k=200)
@@ -107,7 +114,7 @@ class Retriever(RetrieverProtocol):
                 cons_list = [c.strip() for c in cons_list.split(',') if c.strip()]
             pros_str = ' '.join(pros_list) if pros_list else ''
             cons_str = ' '.join(cons_list) if cons_list else ''
-            text = f"{name} | 场景:{use_case} | {desc} | 优点:{pros_str} | 缺点:{cons_str}"
+            text = f"{name} | 类别:{cat_name} | 场景:{use_case} | {desc} | 优点:{pros_str} | 缺点:{cons_str}"
             texts.append(text)
         if ids:
             vectors = embed_batch(texts)

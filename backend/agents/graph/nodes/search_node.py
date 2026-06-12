@@ -486,7 +486,7 @@ def _rank_products(products, search_plan: dict, top_k: int = 10):
 
     ranked = []
     for p in products:
-        embedding_score = float(getattr(p, 'relevance', 0.5))
+        embedding_score = float(getattr(p, 'faiss_similarity', getattr(p, 'relevance', 0.5)))
         review_score = float(getattr(p, 'review_score', 0.0))
 
         price = float(getattr(p, 'price', 0) or 0)
