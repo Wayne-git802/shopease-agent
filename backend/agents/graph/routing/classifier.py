@@ -85,17 +85,23 @@ def classify(ctx: PipelineContext) -> None:
 
 
 def _dialogue_merge(ctx: PipelineContext, conv_state) -> None:
-    """Merge follow-up input with previous query when system left a gap."""
+    """Merge follow-up input with previous query when system left a gap.
+
+    Reference resolution always runs — any turn may contain a product
+    reference ("第二个", "买第三个"), regardless of expects_followup.
+    Text merge only occurs when expects_followup=True.
+    """
     from ..state_router import has_strong_intent
 
-    if not conv_state or not conv_state.dialogue.expects_followup:
-        return
-
-    # ── 1. Reference resolution (BEFORE intent check) ──
+    # ── 1. Reference resolution (always — any turn may contain a reference) ──
     ref = _try_resolve(ctx, conv_state)
     if ref is not None:
-        conv_state.dialogue.expects_followup = False
+        if conv_state:
+            conv_state.dialogue.expects_followup = False
         ctx.state.parallel_results["_resolved_ref"] = ref
+        return
+
+    if not conv_state or not conv_state.dialogue.expects_followup:
         return
 
     # ── 2. Clarification follow-up ──
@@ -119,10 +125,9 @@ def _dialogue_merge(ctx: PipelineContext, conv_state) -> None:
             conv_state.dialogue.expects_followup = False
             ctx.state.parallel_results["_resolved_ref"] = resolved
             return
-        # User said something unrelated → clear pending, fall through
         conv_state.pending_reference = None
 
-    # ── 3. Fall back to existing logic ──
+    # ── 3. Fall back to text merge ──
     if has_strong_intent(ctx.query):
         conv_state.dialogue.expects_followup = False
     elif _is_ambiguous(ctx.query):

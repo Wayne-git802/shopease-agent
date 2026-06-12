@@ -501,7 +501,11 @@ def _rank_products(products, search_plan: dict, top_k: int = 10):
         rating_norm = rating_raw / 5.0
 
         specs = getattr(p, 'specs', {}) or {}
-        sentiment = float(specs.get('review_sentiment', 0.7))
+        sentiment_raw = specs.get('review_sentiment', 0.7)
+        if isinstance(sentiment_raw, str):
+            sentiment_raw = {"positive": 1.0, "neutral": 0.5, "negative": 0.0}.get(
+                sentiment_raw.lower(), 0.5)
+        sentiment = float(sentiment_raw)
 
         total = 0.40 * embedding_score + 0.20 * price_fit + 0.20 * rating_norm + 0.20 * sentiment
 
