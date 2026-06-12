@@ -308,8 +308,46 @@ def search_node(state: AgentState) -> AgentState:
             user_id=state.user_id,
         )
         # ── Apply SQL constraint filter (FAISS∩SQL merge) ──
+        all_faiss_products = list(products)
         if sql_ids is not None:
             products = [p for p in products if p.id in sql_ids]
+        # ── Constraint relaxation when FAISS∩SQL is empty ──
+        relaxed_constraints = []
+        if not products and sql_ids is not None:
+            from agents.commerce.queries.product_query import ProductQuery as _PQ
+            
+            # Layer 1: drop brand (keep category + price)
+            if brand_filter:
+                qs1 = _PQ.purchasable()
+                if category_filter:
+                    qs1 = qs1.filter(category__name__icontains=category_filter)
+                if budget_lower is not None:
+                    qs1 = qs1.filter(price__gte=budget_lower)
+                if budget_upper is not None:
+                    qs1 = qs1.filter(price__lte=budget_upper)
+                relaxed_ids = set(qs1.values_list('id', flat=True)[:200])
+                if relaxed_ids:
+                    products = [p for p in all_faiss_products if p.id in relaxed_ids]
+                    if products:
+                        relaxed_constraints.append(f"品牌「{brand_filter}」")
+            
+            # Layer 2: also drop rating (keep only category + price)
+            if not products and (brand_filter or category_filter):
+                qs2 = _PQ.purchasable()
+                if category_filter:
+                    qs2 = qs2.filter(category__name__icontains=category_filter)
+                if budget_lower is not None:
+                    qs2 = qs2.filter(price__gte=budget_lower)
+                if budget_upper is not None:
+                    qs2 = qs2.filter(price__lte=budget_upper)
+                relaxed_ids = set(qs2.values_list('id', flat=True)[:200])
+                if relaxed_ids:
+                    products = [p for p in all_faiss_products if p.id in relaxed_ids]
+                    if products and not relaxed_constraints:
+                        relaxed_constraints.append(f"品牌「{brand_filter}」" if brand_filter else "")
+            
+            if relaxed_constraints:
+                state.parallel_results["_relaxed_constraints"] = relaxed_constraints
         # ── Enrich from DB + weighted ranking ──
         if products:
             from products.models import Product as _Product
@@ -322,7 +360,7 @@ def search_node(state: AgentState) -> AgentState:
                     dbp.relevance = p.relevance  # carry forward FAISS relevance
                     enriched.append(dbp)
             if enriched:
-                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k)
+                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k, skip_diversity=bool(brand_filter))
                 state.parallel_results["_score_breakdown"] = score_breakdown
                 # Convert back to ProductRef with final scores
                 products = [
@@ -351,7 +389,7 @@ def search_node(state: AgentState) -> AgentState:
                     dbp.relevance = p.relevance
                     enriched.append(dbp)
             if enriched:
-                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k)
+                enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k, skip_diversity=bool(brand_filter))
                 state.parallel_results["_score_breakdown"] = score_breakdown
                 products = [
                     ProductRef(
@@ -469,13 +507,14 @@ def _build_doc_refs(products: list[ProductRef]) -> list[DocRef]:
     return docs
 
 
-def _rank_products(products, search_plan: dict, top_k: int = 10):
-    """Weighted ranking: embedding (0.35) + review (0.15) + price_fit (0.20) + rating (0.15) + sentiment (0.15).
+def _rank_products(products, search_plan: dict, top_k: int = 10, skip_diversity: bool = False):
+    """Weighted ranking: embedding (0.40) + price_fit (0.25) + rating (0.20) + sentiment (0.15).
 
     Args:
         products: list of Product model instances (with .relevance attribute set)
         search_plan: dict from SearchPlan.to_dict()
         top_k: max results to return
+        skip_diversity: if True, skip diversity rerank (e.g. when brand_filter is set)
 
     Returns:
         (ranked_products, score_breakdown) where ranked_products are Product instances
@@ -490,7 +529,6 @@ def _rank_products(products, search_plan: dict, top_k: int = 10):
     ranked = []
     for p in products:
         embedding_score = float(getattr(p, 'faiss_similarity', getattr(p, 'relevance', 0.5)))
-        review_score = float(getattr(p, 'review_score', 0.0))
 
         price = float(getattr(p, 'price', 0) or 0)
         if budget_upper is not None and budget_lower is not None:
@@ -511,23 +549,40 @@ def _rank_products(products, search_plan: dict, top_k: int = 10):
         sentiment = float(sentiment_raw)
 
         total = (
-            0.35 * embedding_score +
-            0.15 * review_score +
-            0.20 * price_fit +
-            0.15 * rating_norm +
+            0.40 * embedding_score +
+            0.25 * price_fit +
+            0.20 * rating_norm +
             0.15 * sentiment
         )
 
         p.relevance = total  # update relevance with final weighted score
         ranked.append((p, total, {
             "product_embedding": round(embedding_score, 3),
-            "review_embedding": round(review_score, 3),
             "price_fit": round(price_fit, 3),
             "rating_norm": round(rating_norm, 3),
             "sentiment": round(sentiment, 3),
         }))
 
     ranked.sort(key=lambda x: x[1], reverse=True)
+
+    # Diversity rerank: penalty for same-brand items after 2nd occurrence
+    if not skip_diversity:
+        brand_count: dict[str, int] = {}
+        diverse = []
+        for item in ranked:
+            p, score, comp = item
+            brand = getattr(p, 'brand', '') or ''
+            brand_count[brand] = brand_count.get(brand, 0) + 1
+            if brand_count[brand] <= 2:
+                diverse.append(item)
+            else:
+                # Penalize 3rd+ same-brand item
+                penalized_score = score * 0.85
+                if penalized_score < diverse[-1][1]:
+                    continue  # drop if penalized score falls below last diverse item
+                diverse.append((p, penalized_score, comp))
+        ranked = diverse
+
     top_ranked = ranked[:top_k]
     return (
         [r[0] for r in top_ranked],

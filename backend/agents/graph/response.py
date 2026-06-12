@@ -308,6 +308,22 @@ def _build_blocks(ctx: PipelineContext, state) -> list[UIBlock]:
                 "items": explained_items,
             }))
 
+    # ── Relaxed constraint message ──
+    relaxed = state.parallel_results.get("_relaxed_constraints", [])
+    if relaxed:
+        relaxed_str = "、".join(relaxed)
+        msg_parts = []
+        if relaxed_str:
+            msg_parts.append(f"没有找到同时满足 {relaxed_str} 的商品")
+            msg_parts.append("以下为放宽条件后的推荐：")
+        # Prepend relaxed message to final_response
+        if msg_parts:
+            prefix = " ".join(msg_parts)
+            if state.final_response:
+                state.final_response = prefix + "\n\n" + state.final_response
+            else:
+                state.final_response = prefix
+
     # Product cards
     if state.intent in ("recommend", "search") and products:
         import uuid as _uuid

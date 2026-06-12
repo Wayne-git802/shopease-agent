@@ -31,11 +31,6 @@ class Retriever(RetrieverProtocol):
         if store.index is None:
             self._build_index_from_db()
 
-        # ── Build review index if not already on disk ──
-        import os as _os
-        if not _os.path.exists('faiss_index/reviews.index'):
-            self._build_review_index()
-
         # ── Vector search ──
         q_vec = embed(query)
         vec_results = store.search(q_vec, k=top_k * 3)  # over-fetch for fusion
@@ -55,11 +50,6 @@ class Retriever(RetrieverProtocol):
         # Attach raw FAISS similarity for ranking
         for p in products:
             p.faiss_similarity = vec_scores.get(p.id, 0.0)
-
-        # ── Review search ──
-        review_scores = self._review_search(q_vec, top_k=200)
-        for p in products:
-            p.review_score = review_scores.get(p.id, 0.0)
 
         docs: list[DocRef] = []   # no document store yet
 
@@ -114,56 +104,19 @@ class Retriever(RetrieverProtocol):
                 cons_list = [c.strip() for c in cons_list.split(',') if c.strip()]
             pros_str = ' '.join(pros_list) if pros_list else ''
             cons_str = ' '.join(cons_list) if cons_list else ''
-            text = f"{name} | 类别:{cat_name} | 场景:{use_case} | {desc} | 优点:{pros_str} | 缺点:{cons_str}"
+            reviews = specs.get('review_text', [])
+            if isinstance(reviews, str):
+                reviews = [reviews]
+            reviews_str = ' '.join(reviews[:3]) if reviews else ''
+            text = f"{name} | 类别:{cat_name} | 场景:{use_case} | {desc} | 优点:{pros_str} | 缺点:{cons_str} | 评价:{reviews_str}"
             texts.append(text)
         if ids:
             vectors = embed_batch(texts)
             get_store().build(ids, vectors)
 
-    def _build_review_index(self) -> None:
-        """Build FAISS index from mean-pooled review embeddings."""
-        _ensure_django()
-        from products.models import Product
-        from agents.commerce.queries.product_query import ProductQuery
 
-        products = ProductQuery.purchasable().filter(brand__isnull=False).values_list('id', 'specs')[:500]
-        ids = []
-        review_vecs = []
-        for pid, specs in products:
-            specs = specs or {}
-            reviews = specs.get('review_text', [])
-            if isinstance(reviews, str):
-                reviews = [reviews]
-            if reviews:
-                vecs = embed_batch(reviews)  # shape: (N, dim)
-                mean_vec = vecs.mean(axis=0)  # mean pool
-            else:
-                mean_vec = np.zeros(384, dtype=np.float32)  # 0 vector for no reviews
 
-            ids.append(pid)
-            review_vecs.append(mean_vec)
 
-        if ids:
-            review_store = VectorStore()
-            review_store.build(ids, np.array(review_vecs))
-            review_store.save('faiss_index/reviews.index')
-
-    def _review_search(self, query_vec: np.ndarray, top_k: int = 200) -> dict[int, float]:
-        """Search review index, return {product_id: review_similarity}"""
-        review_store = VectorStore()
-        loaded = review_store.load('faiss_index/reviews.index')
-
-        if not loaded or review_store.index is None or review_store.index.ntotal == 0:
-            return {}
-
-        distances, indices = review_store.index.search(query_vec.reshape(1, -1), min(top_k, review_store.index.ntotal))
-
-        scores = {}
-        for dist, idx in zip(distances[0], indices[0]):
-            if 0 <= idx < len(review_store.id_map):
-                pid = review_store.id_map[idx]
-                scores[pid] = float(1.0 - dist) if dist < 10 else 0.0
-        return scores
 
     def _keyword_search(self, query: str, limit: int = 30) -> list[tuple[int, float]]:
         """MySQL LIKE on product name/description. Returns [(product_id, score), ...]"""
