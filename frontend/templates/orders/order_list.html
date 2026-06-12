@@ -47,6 +47,8 @@
                         <span class="badge badge-success">Delivered</span>
                     {% elif order.status == 'completed' %}
                         <span class="badge badge-success">Completed</span>
+                    {% elif order.status == 'refunding' %}
+                        <span class="badge badge-warning">退款中</span>
                     {% elif order.status == 'cancelled' %}
                         <span class="badge badge-danger">Cancelled</span>
                     {% elif order.status == 'refunded' %}
@@ -96,7 +98,7 @@
                 </div>
                 <div class="order-card-footer-right">
                     <span style="font-weight: 600; color: var(--text-primary); margin-right: 0.5rem;">Total: <span class="product-price-value" style="font-size: 1.1rem;">¥{{ order.total_amount }}</span></span>
-                    {% if order.status != 'cancelled' and order.status != 'refunded' %}
+                    {% if order.status != 'cancelled' and order.status != 'refunded' and order.status != 'refunding' %}
                     <button class="btn-outline-sm" onclick="refundOrder({{ order.id }})">Refund</button>
                     {% endif %}
                 </div>
@@ -202,7 +204,7 @@ function showOrderDetail(orderId) {
     const statusLabels = {
         'pending': 'Pending', 'paid': 'Paid', 'shipped': 'Shipped',
         'delivered': 'Delivered', 'completed': 'Completed',
-        'cancelled': 'Cancelled', 'refunded': 'Refunded'
+        'cancelled': 'Cancelled', 'refunding': '退款中', 'refunded': 'Refunded'
     };
 
     document.getElementById('orderDetailBody').innerHTML = `
