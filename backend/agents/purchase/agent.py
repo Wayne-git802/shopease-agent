@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from uuid import uuid4
 
-from agents.graph.reference_resolver import ResolvedReference
+from agents.graph.legacy_reference_resolver import LegacyResolvedReference as ResolvedReference
 
 from . import workflow_store
 from . import confirmation_gate
@@ -67,7 +67,7 @@ def _run(
             confidence=0.95,
         )
     else:
-        from agents.graph.reference_resolver import resolve as resolve_ref
+        from agents.graph.legacy_reference_resolver import resolve as resolve_ref
         ref = resolve_ref(
             session_id=session_id,
             display_id=display_id,

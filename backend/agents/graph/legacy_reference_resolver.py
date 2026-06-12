@@ -3,7 +3,7 @@ ReferenceResolver — legacy product reference resolution for domain agents.
 
 ⚠️  NOTE: This module is the OLD reference resolver used internally by
 PurchaseAgent and CartAgent for product reference resolution during
-agent execution.  It defines its own ResolvedReference (incompatible
+agent execution.  It defines its own LegacyResolvedReference (incompatible
 with routing/reference_resolver.ResolvedReference).
 
 For routing-time reference resolution (action detection, capability routing,
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class ResolvedReference:
+class LegacyResolvedReference:
     """Result of resolving a product reference.
 
     Attributes:
@@ -51,7 +51,7 @@ def resolve(
     focused_item: dict | None = None,
     reference_type: str = "",        # "index" | "pronoun" | "implicit"
     reference_value: int | None = None,  # index number (0-based)
-) -> ResolvedReference:
+) -> LegacyResolvedReference:
     """Resolve a product reference using the first matching strategy.
 
     Resolution order (short-circuits on first match):
@@ -84,7 +84,7 @@ def resolve(
                          reference_type="index").
 
     Returns:
-        ResolvedReference with source, product_id, confidence, name, price.
+        LegacyResolvedReference with source, product_id, confidence, name, price.
         Unresolved references have source=None, product_id=0, confidence=0.0.
     """
     # ── 1. DisplayContext lookup ──────────────────────────────────
@@ -106,7 +106,7 @@ def resolve(
             return result
 
     # ── 4. No match ───────────────────────────────────────────────
-    return ResolvedReference(
+    return LegacyResolvedReference(
         source=None,
         product_id=0,
         confidence=0.0,
@@ -117,7 +117,7 @@ def resolve(
 # Internal resolvers
 # ═══════════════════════════════════════════════════════════════
 
-def _resolve_display(display_id: str, index: int) -> ResolvedReference | None:
+def _resolve_display(display_id: str, index: int) -> LegacyResolvedReference | None:
     """Try to resolve via DisplayContext snapshot.
 
     Args:
@@ -125,7 +125,7 @@ def _resolve_display(display_id: str, index: int) -> ResolvedReference | None:
         index: 0-based positional index into the display items list.
 
     Returns:
-        ResolvedReference on success, None if display not found or index out of range.
+        LegacyResolvedReference on success, None if display not found or index out of range.
     """
     group = get_display(display_id)
     if group is None:
@@ -141,7 +141,7 @@ def _resolve_display(display_id: str, index: int) -> ResolvedReference | None:
         return None
 
     item = items[index]
-    return ResolvedReference(
+    return LegacyResolvedReference(
         source="display",
         product_id=item.product_id,
         confidence=0.95,
@@ -150,14 +150,14 @@ def _resolve_display(display_id: str, index: int) -> ResolvedReference | None:
     )
 
 
-def _resolve_focus(focused_item: dict) -> ResolvedReference | None:
+def _resolve_focus(focused_item: dict) -> LegacyResolvedReference | None:
     """Try to resolve via focused_item (pronoun/demonstrative).
 
     Args:
         focused_item: Dict with optional keys {product_id, name, price}.
 
     Returns:
-        ResolvedReference on success, None if product_id is missing/None.
+        LegacyResolvedReference on success, None if product_id is missing/None.
     """
     product_id = focused_item.get("product_id")
     if product_id is None:
@@ -170,7 +170,7 @@ def _resolve_focus(focused_item: dict) -> ResolvedReference | None:
         logger.debug("_resolve_focus: product_id=%r is not a valid int", product_id)
         return None
 
-    return ResolvedReference(
+    return LegacyResolvedReference(
         source="focus",
         product_id=product_id,
         confidence=0.85,
@@ -179,7 +179,7 @@ def _resolve_focus(focused_item: dict) -> ResolvedReference | None:
     )
 
 
-def _resolve_block(session_id: str) -> ResolvedReference | None:
+def _resolve_block(session_id: str) -> LegacyResolvedReference | None:
     """Try to resolve via the most recent product_card block in conversation history.
 
     Queries AgentConversation for the last 5 assistant messages, scans their
@@ -190,7 +190,7 @@ def _resolve_block(session_id: str) -> ResolvedReference | None:
         session_id: Current conversation session ID.
 
     Returns:
-        ResolvedReference on success, None if no product_card blocks found.
+        LegacyResolvedReference on success, None if no product_card blocks found.
     """
     try:
         from agents.models import AgentConversation
@@ -242,7 +242,7 @@ def _resolve_block(session_id: str) -> ResolvedReference | None:
             except (TypeError, ValueError):
                 continue
 
-            return ResolvedReference(
+            return LegacyResolvedReference(
                 source="block",
                 product_id=product_id,
                 confidence=0.70,

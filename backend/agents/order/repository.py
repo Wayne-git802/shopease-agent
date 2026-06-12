@@ -151,6 +151,8 @@ def create_refund(
         total_amount=o.total_amount,
         status=RefundStatus.PENDING,
     )
+    o.status = OrderStatus.REFUNDING
+    o.save(update_fields=["status"])
 
     result = {
         "ok": True,

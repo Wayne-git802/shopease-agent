@@ -113,5 +113,5 @@ def build_error(message: str) -> ResponsePayload:
 def _status_cn(status: str) -> str:
     return {
         "paid": "已支付", "shipped": "已发货", "completed": "已完成",
-        "cancelled": "已取消", "refunded": "已退款",
+        "refunding": "退款中", "cancelled": "已取消", "refunded": "已退款",
     }.get(status, status)

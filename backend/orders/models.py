@@ -26,6 +26,7 @@ class OrderStatus:
     PAID = 'paid'
     SHIPPED = 'shipped'
     COMPLETED = 'completed'
+    REFUNDING = 'refunding'
     CANCELLED = 'cancelled'
     REFUNDED = 'refunded'
 
@@ -33,6 +34,7 @@ class OrderStatus:
         (PAID, 'Paid'),
         (SHIPPED, 'Shipped'),
         (COMPLETED, 'Completed'),
+        (REFUNDING, 'Refunding'),
         (CANCELLED, 'Cancelled'),
         (REFUNDED, 'Refunded'),
     ]

@@ -29,7 +29,7 @@ from .workflow_store import load as load_workflow, save as save_workflow, delete
 logger = logging.getLogger(__name__)
 
 # Orders with these statuses are eligible for refund
-REFUNDABLE_STATUS = frozenset({"paid", "shipped", "completed"})
+REFUNDABLE_STATUS = frozenset({"paid", "shipped", "completed", "refunding"})
 
 
 def _run(query: str, user_id: int | None = None, session_id: str = "") -> dict:
