@@ -317,11 +317,53 @@ for name, brand, price, rating, rank, wt, spec_str, use_case, pros, cons, sentim
     }, None, None, False))
 
 
+# ── Normalize specs ──
+
+def _normalize_specs(specs: dict) -> dict:
+    """Convert specs fields to correct types for the new schema."""
+    specs = dict(specs)  # copy
+    # pros/cons: comma-string → list
+    for key in ('pros', 'cons'):
+        val = specs.get(key, '')
+        if isinstance(val, str):
+            specs[key] = [s.strip() for s in val.split(',') if s.strip()]
+    # review_sentiment: string → float
+    sentiment = specs.get('review_sentiment', 'positive')
+    if isinstance(sentiment, str):
+        specs['review_sentiment'] = {
+            'positive': 0.85, 'neutral': 0.50, 'negative': 0.15
+        }.get(sentiment.lower(), 0.50)
+    # review_count: ensure int
+    specs['review_count'] = int(specs.get('review_count', 0))
+    # review_text: generate 3 Chinese review sentences from pros/cons
+    if 'review_text' not in specs:
+        pros_list = specs.get('pros', [])
+        cons_list = specs.get('cons', [])
+        reviews = []
+        if pros_list:
+            reviews.append(f"{pros_list[0]}，真的很不错")
+        else:
+            reviews.append("产品质量很好，值得购买")
+        if len(pros_list) > 1:
+            reviews.append(f"{pros_list[1]}，体验很好")
+        elif cons_list:
+            reviews.append(f"除了{cons_list[0]}，其他都挺满意")
+        else:
+            reviews.append("使用体验不错，推荐购买")
+        if cons_list:
+            reviews.append(f"{cons_list[0]}，希望能改进")
+        else:
+            reviews.append("整体满意，会回购")
+        specs['review_text'] = reviews
+    return specs
+
+
 # ── Insert products ──
 print(f"\nInserting {len(products_data)} products...")
 count = 0
 for cat_name, name, brand, price, rating, rank, wt, specs, bt, nc, battery in products_data:
     cat = categories[cat_name]
+    specs = _normalize_specs(specs)
     product = Product.objects.create(
         name=name, description=f"{brand} {name} — {specs.get('use_case', '')}",
         price=price, category=cat, seller=seller, shop=shop, is_active=True,

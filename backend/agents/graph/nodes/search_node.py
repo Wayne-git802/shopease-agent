@@ -467,7 +467,7 @@ def _build_doc_refs(products: list[ProductRef]) -> list[DocRef]:
 
 
 def _rank_products(products, search_plan: dict, top_k: int = 10):
-    """Weighted ranking: embedding (0.40) + price_fit (0.20) + rating (0.20) + sentiment (0.20).
+    """Weighted ranking: embedding (0.35) + review (0.15) + price_fit (0.20) + rating (0.15) + sentiment (0.15).
 
     Args:
         products: list of Product model instances (with .relevance attribute set)
@@ -487,6 +487,7 @@ def _rank_products(products, search_plan: dict, top_k: int = 10):
     ranked = []
     for p in products:
         embedding_score = float(getattr(p, 'relevance', 0.5))
+        review_score = float(getattr(p, 'review_score', 0.0))
 
         price = float(getattr(p, 'price', 0) or 0)
         if budget_upper is not None and budget_lower is not None:
@@ -506,11 +507,18 @@ def _rank_products(products, search_plan: dict, top_k: int = 10):
                 sentiment_raw.lower(), 0.5)
         sentiment = float(sentiment_raw)
 
-        total = 0.40 * embedding_score + 0.20 * price_fit + 0.20 * rating_norm + 0.20 * sentiment
+        total = (
+            0.35 * embedding_score +
+            0.15 * review_score +
+            0.20 * price_fit +
+            0.15 * rating_norm +
+            0.15 * sentiment
+        )
 
         p.relevance = total  # update relevance with final weighted score
         ranked.append((p, total, {
-            "embedding_match": round(embedding_score, 3),
+            "product_embedding": round(embedding_score, 3),
+            "review_embedding": round(review_score, 3),
             "price_fit": round(price_fit, 3),
             "rating_norm": round(rating_norm, 3),
             "sentiment": round(sentiment, 3),

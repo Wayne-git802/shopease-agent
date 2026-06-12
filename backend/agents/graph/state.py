@@ -17,6 +17,7 @@ class ChatMessage(BaseModel):
 
 
 class ProductRef(BaseModel):
+    model_config = {"extra": "allow"}
     id: int
     name: str
     price: float
