@@ -77,6 +77,7 @@ function buildArtifacts(meta) {
         else if (block.type === 'explain') artifacts.push({type: 'explain', payload: block.data});
         else if (block.type === 'confirm_dialog') artifacts.push({type: 'confirm_dialog', payload: block.data});
         else if (block.type === 'order_created_card') artifacts.push({type: 'order_created_card', payload: block.data});
+        else if (block.type === 'order_card') artifacts.push({type: 'order_cards', payload: block.data});
     });
     return artifacts;
 }
@@ -299,6 +300,7 @@ function renderMessage(msg) {
             if (a.type === 'runtime') renderRuntimePanelInline(artContainer, a.payload);
             if (a.type === 'confirm_dialog') renderConfirmDialog(artContainer, a.payload);
             if (a.type === 'order_created_card') renderOrderCreatedCard(artContainer, a.payload);
+            if (a.type === 'order_cards') renderOrderCards(artContainer, a.payload);
         });
         wrapper.appendChild(artContainer);
     }
@@ -430,6 +432,7 @@ async function submitWorkspace() {
                 else if (block.type === 'explain') artifacts.push({type: 'explain', payload: block.data});
                 else if (block.type === 'confirm_dialog') artifacts.push({type: 'confirm_dialog', payload: block.data});
                 else if (block.type === 'order_created_card') artifacts.push({type: 'order_created_card', payload: block.data});
+        else if (block.type === 'order_card') artifacts.push({type: 'order_cards', payload: block.data});
             });
         }
         if (data.runtime) {
@@ -712,6 +715,41 @@ document.getElementById('workspaceInput').addEventListener('input', function() {
     }
     // Auto-hide sidebar if guest
     if (IS_GUEST) document.getElementById('workspaceLayout').classList.add('guest');
+
+function renderOrderCards(container, data) {
+    // data may be a single order or {orders: [...]}
+    const orders = Array.isArray(data) ? data : (data.orders || [data]);
+    if (!orders.length) return;
+    
+    const wrapper = document.createElement('div');
+    wrapper.className = 'order-cards-wrapper';
+    
+    orders.forEach(order => {
+        const statusLabels = {
+            'paid': '已付款', 'shipped': '已发货', 'completed': '已完成',
+            'cancelled': '已取消', 'refunding': '退款中', 'refunded': '已退款'
+        };
+        const status = statusLabels[order.status] || order.status;
+        const refundable = ['paid', 'shipped', 'completed'].includes(order.status);
+        
+        const card = document.createElement('div');
+        card.className = 'order-card';
+        card.innerHTML = 
+            '<div class=\"order-card-main\">' +
+                '<div class=\"order-card-product\">' + escapeHtml(order.product_name) + '</div>' +
+                '<div class=\"order-card-meta\">' +
+                    '<span class=\"order-card-price\">¥' + (order.price || '?') + '</span>' +
+                    '<span class=\"order-card-status ' + (refundable ? 'refundable' : '') + '\">' + status + '</span>' +
+                    '<span class=\"order-card-date\">' + (order.created_at ? new Date(order.created_at).toLocaleDateString() : '') + '</span>' +
+                '</div>' +
+            '</div>' +
+            (refundable ? '<button class=\"order-refund-btn\" onclick=\"document.getElementById(\\'workspaceInput\\').value=\\'退款 ' + order.order_id + '\\'; submitWorkspace();\">退款</button>' : '');
+        wrapper.appendChild(card);
+    });
+    
+    container.appendChild(wrapper);
+}
+
 })();
 </script>
 {% endblock %}

@@ -119,10 +119,13 @@ def _affinity_route(ctx: PipelineContext) -> dict | None:
         return None
 
     # P2 — Active OrderWorkflow
-    from agents.order.workflow_store import load as load_owf
-    owf = load_owf(ctx.session_id)
-    if owf and owf.current_step != "idle":
-        return _dispatch_agent(ctx, AgentCapability.ORDER)
+    # Skip if query contains a product reference — user is starting
+    # a new action ("买第一个"), not continuing an order workflow.
+    if not _has_product_reference(ctx.query):
+        from agents.order.workflow_store import load as load_owf
+        owf = load_owf(ctx.session_id)
+        if owf and owf.current_step != "idle":
+            return _dispatch_agent(ctx, AgentCapability.ORDER)
 
     # P3 — Block-based affinity (event-sourced)
     actx = build_action_context(ctx.session_id)
