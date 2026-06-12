@@ -69,7 +69,7 @@ def response_node(state: AgentState) -> AgentState:
                     state.parallel_results["_llm_explanation"] = explanation
                     parts.append(f"\n💡 {explanation}")
             except Exception:
-                pass
+                logger.debug("LLM explanation generation failed (non-critical)", exc_info=True)
 
         state.final_response = "\n".join(parts)
         state.ui_message = f"为你找到 {count} 款相关商品"
