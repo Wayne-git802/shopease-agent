@@ -197,15 +197,12 @@ def _try_resolve(ctx: PipelineContext, conv_state) -> "ResolvedReference | None"
 
 
 def _infer_action_from_clarification_reply(query: str) -> "ReferenceAction | None":
-    """从用户对澄清的回复中推断 action。只处理明确的关键词。"""
-    from .reference_resolver import ReferenceAction
+    """从用户对澄清的回复中推断 action。复用 _ACTION_PATTERNS 的关键词表。"""
+    from .reference_resolver import ReferenceAction, ACTION_KEYWORDS
     q = query.strip()
-    if any(kw in q for kw in ["购买", "下单", "买", "立即购买"]):
-        return ReferenceAction.PURCHASE
-    if any(kw in q for kw in ["加入购物车", "加购", "加购物车"]):
-        return ReferenceAction.ADD_TO_CART
-    if any(kw in q for kw in ["查看", "看看", "详情", "介绍"]):
-        return ReferenceAction.VIEW_DETAIL
+    for action in (ReferenceAction.PURCHASE, ReferenceAction.ADD_TO_CART, ReferenceAction.VIEW_DETAIL):
+        if any(kw in q for kw in ACTION_KEYWORDS.get(action, [])):
+            return action
     return None
 
 

@@ -156,6 +156,7 @@ def _manage_session(ctx: PipelineContext, state) -> None:
         if order_id:
             push_recent_order(session_id, str(order_id))
 
+    # ── Build conversation state ──
     if clarify_data and session_id:
         sm = SessionMemory(
             session_id=session_id,
@@ -169,18 +170,6 @@ def _manage_session(ctx: PipelineContext, state) -> None:
             original_query=ctx.query, clarify_data=clarify_data,
             ai_reply=state.final_response,
         )
-        cs.dialogue.last_user_query = ctx.query
-        cs.dialogue.expects_followup = has_cards or is_clarify_ref
-        if is_clarify_ref:
-            ref = state.parallel_results.get("_resolved_ref")
-            if ref and hasattr(ref, 'target') and ref.target.product_ids:
-                from .preprocessor import PendingReference
-                cs.pending_reference = PendingReference(
-                    product_id=ref.target.product_ids[0],
-                    product_name=ref.product_name,
-                    waiting_for=ref.clarification_reason,
-                )
-        put_conv_state(cs)
     elif session_id:
         clear_session_memory(session_id)
         cs = build_conversation_state(
@@ -188,18 +177,28 @@ def _manage_session(ctx: PipelineContext, state) -> None:
             original_query=ctx.query, clarify_data=None,
             ai_reply=state.final_response,
         )
-        cs.dialogue.last_user_query = ctx.query
-        cs.dialogue.expects_followup = has_cards or is_clarify_ref
-        if is_clarify_ref:
-            ref = state.parallel_results.get("_resolved_ref")
-            if ref and hasattr(ref, 'target') and ref.target.product_ids:
-                from .preprocessor import PendingReference
-                cs.pending_reference = PendingReference(
-                    product_id=ref.target.product_ids[0],
-                    product_name=ref.product_name,
-                    waiting_for=ref.clarification_reason,
-                )
-        put_conv_state(cs)
+    else:
+        return
+
+    # ── Shared: dialogue context + pending reference ──
+    cs.dialogue.last_user_query = ctx.query
+    cs.dialogue.expects_followup = has_cards or is_clarify_ref
+    _attach_pending_reference(cs, is_clarify_ref, state)
+    put_conv_state(cs)
+
+
+def _attach_pending_reference(cs, is_clarify_ref: bool, state) -> None:
+    """Attach PendingReference to conversation state when clarifying a reference."""
+    if not is_clarify_ref:
+        return
+    ref = state.parallel_results.get("_resolved_ref")
+    if ref and hasattr(ref, 'target') and ref.target.product_ids:
+        from .preprocessor import PendingReference
+        cs.pending_reference = PendingReference(
+            product_id=ref.target.product_ids[0],
+            product_name=ref.product_name,
+            waiting_for=ref.clarification_reason,
+        )
 
 
 def _persist_clarify(ctx: PipelineContext, state) -> None:

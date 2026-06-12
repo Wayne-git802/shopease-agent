@@ -29,6 +29,21 @@ from ..contracts.search_plan import (
 from ..cost_router import CostRouter, estimate_tokens
 from ..rag.retriever import get_retriever
 
+# ── Constraint relaxation ─────────────────────────────────────
+MIN_CANDIDATES = 2   # relax only when nearly empty (brand is critical)
+
+
+def _build_brand_q(brand: str):
+    """Build a Django Q object for brand matching with CN/EN fallback."""
+    from django.db.models import Q
+    from ..contracts.search_plan import BRAND_ALIASES
+    q = Q(brand__iexact=brand) | Q(name__icontains=brand) | Q(description__icontains=brand)
+    cn_keywords = [k for k, v in BRAND_ALIASES.items() if v == brand and k != brand]
+    for cn in cn_keywords:
+        q |= Q(name__icontains=cn) | Q(description__icontains=cn)
+    return q
+
+
 # ── Regex-based sort detection ─────────────────────────────────
 
 def _regex_detect(query: str) -> SearchPlan | None:
@@ -141,18 +156,15 @@ def _execute_structured_sort(plan: SearchPlan, limit: int = 10) -> list[ProductR
     if plan.category_filter:
         qs = qs.filter(category__name__icontains=plan.category_filter)
 
-    # Apply budget band as price filter
-    if plan.budget_band:
-        if plan.budget_band == "0-500":
-            qs = qs.filter(price__lte=500)
-        elif plan.budget_band == "500-1500":
-            qs = qs.filter(price__gte=500, price__lte=1500)
-        elif plan.budget_band == "1500+":
-            qs = qs.filter(price__gte=1500)
-        elif plan.budget_band == "500+":
-            qs = qs.filter(price__gte=500)
-        elif plan.budget_band == "0+":
-            pass  # no lower bound filter — match all
+    # Apply brand filter (with CN/EN fallback — brand field is mostly NULL)
+    if plan.brand:
+        qs = qs.filter(_build_brand_q(plan.brand))
+
+    # Apply budget range as price filter (same as main path)
+    if plan.budget_lower is not None:
+        qs = qs.filter(price__gte=plan.budget_lower)
+    if plan.budget_upper is not None:
+        qs = qs.filter(price__lte=plan.budget_upper)
 
     # Fields that need .with_sales_data() annotation
     if sort_field in ANNOTATION_FIELDS:
@@ -165,7 +177,7 @@ def _execute_structured_sort(plan: SearchPlan, limit: int = 10) -> list[ProductR
         refs.append(ProductRef(
             id=p.id,
             name=p.name,
-            price=float(p.price),
+            price=float(p.price or 0),
             category=p.category.name if p.category else "",
             relevance=1.0,
         ))
@@ -192,24 +204,28 @@ def search_node(state: AgentState) -> AgentState:
             _django_fp.setup()
             from agents.commerce.queries.product_query import ProductQuery
             try:
-                p = ProductQuery.purchasable().get(id=resolved_ref.target.product_ids[0])
-                pr = ProductRef(
-                    id=p.id, name=p.name, price=float(p.price or 0),
-                    category=p.category.name if p.category else "",
-                    relevance=1.0,
-                )
-                state.retrieved_products = [pr]
-                state.tool_results["products"] = [{
-                    "product_id": p.id, "product_name": p.name, "name": p.name,
-                    "price": str(p.price), "category_name": p.category.name if p.category else "",
-                    "score": 1.0,
-                }]
-                state.current_node = "search"
-                state.steps_done.append("search")
-                state.ui_message = f"已选择：{p.name}"
-                state.parallel_results["_search_phase_label"] = "引用详情"
-                state.parallel_results["_search_phase_detail"] = f"查看商品：{p.name}"
-                return state
+                pids = resolved_ref.target.product_ids
+                if not pids:
+                    logger.warning("VIEW_DETAIL fast path: product_ids is empty")
+                else:
+                    p = ProductQuery.purchasable().get(id=pids[0])
+                    pr = ProductRef(
+                        id=p.id, name=p.name, price=float(p.price or 0),
+                        category=p.category.name if p.category else "",
+                        relevance=1.0,
+                    )
+                    state.retrieved_products = [pr]
+                    state.tool_results["products"] = [{
+                        "product_id": p.id, "product_name": p.name, "name": p.name,
+                        "price": str(p.price), "category_name": p.category.name if p.category else "",
+                        "score": 1.0,
+                    }]
+                    state.current_node = "search"
+                    state.steps_done.append("search")
+                    state.ui_message = f"已选择：{p.name}"
+                    state.parallel_results["_search_phase_label"] = "引用详情"
+                    state.parallel_results["_search_phase_detail"] = f"查看商品：{p.name}"
+                    return state
             except Exception:
                 logger.warning("VIEW_DETAIL fast path failed for product_ids=%s", resolved_ref.target.product_ids)
 
@@ -229,6 +245,7 @@ def search_node(state: AgentState) -> AgentState:
         sort_by=plan_dict.get("sort_by"),
         direction=plan_dict.get("direction"),
         category_filter=plan_dict.get("category_filter"),
+        category_confidence=plan_dict.get("category_confidence", 1.0),
         brand=plan_dict.get("brand"),
         budget_lower=plan_dict.get("budget_lower"),
         budget_upper=plan_dict.get("budget_upper"),
@@ -239,20 +256,24 @@ def search_node(state: AgentState) -> AgentState:
         detail=plan_dict.get("detail", ""),
     )
 
-    # ── SQL constraint filter (brand + price range) ─────────────
+    # ── SQL constraint filter ─────────────────────────────────
     brand_filter = plan_dict.get("brand")
     budget_lower = plan_dict.get("budget_lower")
     budget_upper = plan_dict.get("budget_upper")
     category_filter = plan_dict.get("category_filter")
+    category_confidence = plan_dict.get("category_confidence", 1.0)
 
+    # Category enters SQL WHERE only when confidence ≥ 0.9 (hard filter).
+    # Below 0.9 → soft boost in ranking instead (set via category_boost later).
     sql_ids = None
-    if brand_filter or budget_lower is not None or budget_upper is not None or category_filter:
+    _category_hard = category_filter and category_confidence >= 0.9
+    if brand_filter or budget_lower is not None or budget_upper is not None or _category_hard:
         from agents.commerce.queries.product_query import ProductQuery as _PQ
         qs = _PQ.purchasable()
-        if category_filter:
+        if _category_hard:
             qs = qs.filter(category__name__icontains=category_filter)
         if brand_filter:
-            qs = qs.filter(brand__iexact=brand_filter)
+            qs = qs.filter(_build_brand_q(brand_filter))
         if budget_lower is not None:
             qs = qs.filter(price__gte=budget_lower)
         if budget_upper is not None:
@@ -314,22 +335,41 @@ def search_node(state: AgentState) -> AgentState:
             top_k=top_k,
             user_id=state.user_id,
         )
-        # ── Apply SQL constraint filter (FAISS∩SQL merge) ──
+        # ── Apply SQL constraint filter ──
+        # When SQL has enough results, use them as primary source.
+        # FAISS∩SQL intersection fails when embeddings are from
+        # different languages (zh query × en product data).
         all_faiss_products = list(products)
-        if sql_ids is not None:
+        if sql_ids is not None and len(sql_ids) >= MIN_CANDIDATES:
+            # SQL is the primary source — intersect to re-rank, not to filter
+            intersected = [p for p in products if p.id in sql_ids]
+            if len(intersected) < MIN_CANDIDATES:
+                # FAISS missed most SQL results — use SQL products directly
+                from products.models import Product as _Prod
+                from types import SimpleNamespace
+                sql_pids = list(_Prod.objects.filter(id__in=sql_ids).values_list('id', flat=True)[:50])
+                sql_products = [SimpleNamespace(id=pid, relevance=0.5) for pid in sql_pids]
+                products = sql_products + intersected
+            else:
+                products = intersected
+        elif sql_ids is not None:
             products = [p for p in products if p.id in sql_ids]
-        # ── Constraint relaxation when FAISS∩SQL is empty ──
+
+        # ── Constraint relaxation: hard → soft → none ────────
         relaxed_constraints = []
-        if not products and sql_ids is not None:
+        brand_boost: str | None = None       # soft boost: brand to prefer in ranking
+        category_boost: str | None = None     # soft boost: category to prefer in ranking
+
+        if len(products) < MIN_CANDIDATES and sql_ids is not None:
             # Re-fetch with larger window to get more candidates
             products_large, _ = retriever.search(enriched_query, top_k=100, user_id=state.user_id)
             all_faiss_products = list(products_large)
             from agents.commerce.queries.product_query import ProductQuery as _PQ
-            
-            # Layer 1: drop brand (keep category + price)
-            if brand_filter:
+
+            # ── Layer 1: brand → soft boost (keep category + price hard) ──
+            if brand_filter and len(products) < MIN_CANDIDATES:
                 qs1 = _PQ.purchasable()
-                if category_filter:
+                if _category_hard:
                     qs1 = qs1.filter(category__name__icontains=category_filter)
                 if budget_lower is not None:
                     qs1 = qs1.filter(price__gte=budget_lower)
@@ -339,13 +379,12 @@ def search_node(state: AgentState) -> AgentState:
                 if relaxed_ids:
                     products = [p for p in all_faiss_products if p.id in relaxed_ids]
                     if products:
+                        brand_boost = brand_filter
                         relaxed_constraints.append(f"品牌「{brand_filter}」")
-            
-            # Layer 2: also drop rating (keep only category + price)
-            if not products and (brand_filter or category_filter):
+
+            # ── Layer 2: category → soft boost (keep price hard only) ──
+            if len(products) < MIN_CANDIDATES and _category_hard:
                 qs2 = _PQ.purchasable()
-                if category_filter:
-                    qs2 = qs2.filter(category__name__icontains=category_filter)
                 if budget_lower is not None:
                     qs2 = qs2.filter(price__gte=budget_lower)
                 if budget_upper is not None:
@@ -353,28 +392,39 @@ def search_node(state: AgentState) -> AgentState:
                 relaxed_ids = set(qs2.values_list('id', flat=True)[:200])
                 if relaxed_ids:
                     products = [p for p in all_faiss_products if p.id in relaxed_ids]
-                    if products and not relaxed_constraints:
-                        if brand_filter:
-                            relaxed_constraints.append(f"品牌「{brand_filter}」")
-            
+                    if products:
+                        category_boost = category_filter
+                        relaxed_constraints.append(f"分类「{category_filter}」")
+
             if relaxed_constraints:
                 state.parallel_results["_relaxed_constraints"] = relaxed_constraints
-            if not products:
-                # Layer 3: pure semantic fallback — no SQL constraints
+
+            # ── Layer 3: pure FAISS — no SQL constraints ──
+            if len(products) < MIN_CANDIDATES:
                 products = [p for p in all_faiss_products]
                 if products:
                     relaxed_constraints.append("全部筛选条件")
                     state.parallel_results["_relaxed_constraints"] = relaxed_constraints
                 else:
                     state.parallel_results["_no_results"] = True
+
         # ── Enrich from DB + weighted ranking ──
-        products, score_breakdown = _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=bool(brand_filter) or mode == "exact")
+        _skip_div = bool(brand_filter and brand_boost is None) or mode == "exact"
+        products, score_breakdown = _enrich_and_rank(
+            products, plan_dict, state, top_k,
+            skip_diversity=_skip_div,
+            brand_boost=brand_boost,
+            category_boost=category_boost,
+        )
         if score_breakdown:
             state.parallel_results["_score_breakdown"] = score_breakdown
     elif strategy_dec.strategy == SearchStrategy.SQL_ONLY:
         products = structured_products
         docs = []
-        products, score_breakdown = _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=bool(brand_filter) or mode == "exact")
+        products, score_breakdown = _enrich_and_rank(
+            products, plan_dict, state, top_k,
+            skip_diversity=bool(brand_filter) or mode == "exact",
+        )
         if score_breakdown:
             state.parallel_results["_score_breakdown"] = score_breakdown
 
@@ -483,7 +533,8 @@ def _build_doc_refs(products: list[ProductRef]) -> list[DocRef]:
     return docs
 
 
-def _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=False):
+def _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=False,
+                     brand_boost=None, category_boost=None):
     """Enrich FAISS results with DB data, rank, convert to ProductRef."""
     if not products:
         return [], []
@@ -498,7 +549,10 @@ def _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=False):
             enriched.append(dbp)
     if not enriched:
         return products, None
-    enriched, score_breakdown = _rank_products(enriched, plan_dict, top_k, skip_diversity)
+    enriched, score_breakdown = _rank_products(
+        enriched, plan_dict, top_k, skip_diversity,
+        brand_boost=brand_boost, category_boost=category_boost,
+    )
     products = [
         ProductRef(
             id=p.id, name=p.name, price=float(p.price),
@@ -510,14 +564,21 @@ def _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=False):
     return products, score_breakdown
 
 
-def _rank_products(products, search_plan: dict, top_k: int = 10, skip_diversity: bool = False):
+def _rank_products(products, search_plan: dict, top_k: int = 10, skip_diversity: bool = False,
+                   brand_boost: str = None, category_boost: str = None):
     """Weighted ranking: embedding (0.40) + price_fit (0.25) + rating (0.20) + sentiment (0.15).
+
+    Soft boosts (additive, applied after base score):
+      - brand_boost: +0.15 for products matching this brand
+      - category_boost: +0.10 for products matching this category
 
     Args:
         products: list of Product model instances (with .relevance attribute set)
         search_plan: dict from SearchPlan.to_dict()
         top_k: max results to return
-        skip_diversity: if True, skip diversity rerank (e.g. when brand_filter is set)
+        skip_diversity: if True, skip diversity rerank (e.g. when brand is hard-filtered)
+        brand_boost: brand name to boost in ranking (None → no boost)
+        category_boost: category name to boost in ranking (None → no boost)
 
     Returns:
         (ranked_products, score_breakdown) where ranked_products are Product instances
@@ -551,12 +612,27 @@ def _rank_products(products, search_plan: dict, top_k: int = 10, skip_diversity:
                 sentiment_raw.lower(), 0.5)
         sentiment = float(sentiment_raw)
 
-        total = (
+        base_total = (
             0.40 * embedding_score +
             0.25 * price_fit +
             0.20 * rating_norm +
             0.15 * sentiment
         )
+
+        # ── Soft boosts (additive) ──
+        brand_bonus = 0.0
+        category_bonus = 0.0
+        if brand_boost:
+            product_brand = getattr(p, 'brand', '') or ''
+            if product_brand.lower() == brand_boost.lower():
+                brand_bonus = 0.15
+        if category_boost:
+            product_cat = getattr(p, 'category', None)
+            product_cat_name = (product_cat.name or '') if product_cat else ''
+            if product_cat_name and category_boost in product_cat_name:
+                category_bonus = 0.10
+
+        total = base_total + brand_bonus + category_bonus
 
         p.relevance = total  # update relevance with final weighted score
         ranked.append((p, total, {

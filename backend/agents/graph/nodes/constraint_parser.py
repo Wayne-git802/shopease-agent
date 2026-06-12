@@ -76,7 +76,7 @@ def build_plan(frame: QueryFrame) -> SearchPlan:
     brand = _extract_brand(normalized)
 
     # ── Step 3: Category extraction ─────────────────────────────
-    category_filter = _extract_category(normalized)
+    category_filter, category_confidence = _extract_category(normalized)
 
     # ── Step 4: Strategy selection ──────────────────────────────
     strategy = (
@@ -112,6 +112,7 @@ def build_plan(frame: QueryFrame) -> SearchPlan:
         sort_by=sort_by,
         direction=direction,
         category_filter=category_filter,
+        category_confidence=category_confidence,
         brand=brand,
         budget_lower=budget_lower,
         budget_upper=budget_upper,
@@ -259,15 +260,18 @@ def _extract_budget_range(normalized: str, original: str) -> tuple[Optional[floa
     return None, None
 
 
-def _extract_category(normalized: str) -> Optional[str]:
+def _extract_category(normalized: str) -> tuple[Optional[str], float]:
     """Extract product category from query keywords.
 
-    Returns category slug (English) or None.
+    Returns (category_slug, confidence) where:
+      - confidence = 1.0 for exact CATEGORY_KEYWORDS match → hard SQL filter
+      - confidence = 0.0 when no match
+    Future: fuzzy/LLM category extraction can return intermediate values for soft boost.
     """
     for keyword, slug in CATEGORY_KEYWORDS.items():
         if keyword in normalized:
-            return slug
-    return None
+            return slug, 1.0
+    return None, 0.0
 
 
 def _extract_brand(normalized: str) -> Optional[str]:

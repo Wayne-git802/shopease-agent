@@ -85,6 +85,13 @@ _ORDINAL_PATTERN = re.compile(
     r'第\s*([\d一二两三四五六七八九十]+)\s*[个款]'
 )
 
+# Shared keyword lists — also used by classifier._infer_action_from_clarification_reply
+ACTION_KEYWORDS: dict[ReferenceAction, list[str]] = {
+    ReferenceAction.PURCHASE:    ["购买", "下单", "买", "立即购买", "我要"],
+    ReferenceAction.ADD_TO_CART: ["加入购物车", "加购", "加购物车"],
+    ReferenceAction.VIEW_DETAIL: ["查看", "看看", "详情", "介绍", "什么样"],
+}
+
 _ACTION_PATTERNS: list[tuple[re.Pattern, ReferenceAction]] = [
     (re.compile(r'(买|购买|下单|我要)\s*(?:第\s*)?(\d+)\s*$'), ReferenceAction.PURCHASE),
     (re.compile(r'(加购物车|加入购物车|加购)\s*(?:第\s*)?(\d+)\s*$'), ReferenceAction.ADD_TO_CART),

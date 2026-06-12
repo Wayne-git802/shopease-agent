@@ -204,6 +204,11 @@ class SearchPlan:
     budget_lower: Optional[float] = None   # price lower bound (actual numeric)
     budget_upper: Optional[float] = None   # price upper bound (actual numeric)
 
+    # ── Constraint confidence (0.0-1.0) ──
+    # ≥ 0.9 → hard SQL WHERE filter
+    # < 0.9 → soft boost in ranking (不进 SQL, 作为 _rank_products 加分项)
+    category_confidence: float = 1.0
+
     # ── Soft constraint (consumed by ranking phase) ──
     budget_band: Optional[str] = None      # "0-500" | "500-1500" | "1500+" | None
 
@@ -249,6 +254,7 @@ class SearchPlan:
             "budget_lower": self.budget_lower,
             "budget_upper": self.budget_upper,
             "budget_band": self.budget_band,
+            "category_confidence": self.category_confidence,
             "show_clarify_hint": self.show_clarify_hint,
             "show_budget_hint": self.show_budget_hint,
             "method": self.method,
