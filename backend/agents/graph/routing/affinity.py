@@ -217,3 +217,8 @@ def route_by_affinity(ctx: ConversationActionContext, query: str) -> AgentCapabi
             logger.debug("Block type '%s' not in affinity table, falling through", block.type)
 
     return None
+
+def _has_product_reference(query: str) -> bool:
+    """True if query contains an ordinal reference ("第一个", "买第二个")."""
+    import re
+    return bool(re.search(r'第\s*[一二两三四五六七八九十\d]+\s*[个款]', query))
