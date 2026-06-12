@@ -85,9 +85,6 @@ _ORDINAL_PATTERN = re.compile(
     r'第\s*([\d一二两三四五六七八九十]+)\s*[个款]'
 )
 
-# Bare number as reference: "1", "2", "3" (after product list shown)
-_BARE_NUM_PATTERN = re.compile(r'^(\d+)$')
-
 _ACTION_PATTERNS: list[tuple[re.Pattern, ReferenceAction]] = [
     (re.compile(r'(买|购买|下单|我要)\s*(?:第\s*)?(\d+)\s*$'), ReferenceAction.PURCHASE),
     (re.compile(r'(加购物车|加入购物车|加购)\s*(?:第\s*)?(\d+)\s*$'), ReferenceAction.ADD_TO_CART),
@@ -128,21 +125,6 @@ def resolve_reference(query: str, ctx: ReferenceContext) -> ResolvedReference:
     # ── 1. Extract ordinal index ──
     ordinal_match = _ORDINAL_PATTERN.search(query)
     if not ordinal_match:
-        # Bare number reference: "1", "2", "3" (after product list shown)
-        bare_match = _BARE_NUM_PATTERN.match(query.strip())
-        if bare_match and ctx.products:
-            ref_idx = int(bare_match.group(1)) - 1
-            product = ctx.products[ref_idx] if 0 <= ref_idx < len(ctx.products) else None
-            action = ReferenceAction.VIEW_DETAIL  # bare number = view detail
-            if product:
-                return ResolvedReference(
-                    target=ReferenceTarget(product_ids=[product.product_id]),
-                    product_name=product.product_name,
-                    confidence=1.0,
-                    action=action,
-                    capability=capability_for(action),
-                    source_index=ref_idx + 1,
-                )
         return ResolvedReference()
 
     num_str = ordinal_match.group(1)
