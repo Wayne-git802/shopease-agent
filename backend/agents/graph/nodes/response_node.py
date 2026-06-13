@@ -15,37 +15,17 @@ logger = logging.getLogger(__name__)
 def response_node(state: AgentState) -> AgentState:
     """Format final response. If error exists, return error message.
 
-    P3: 3-way UI decision — clarify / explain+products / plain text.
+    P2: 2-way UI decision — explain+products / plain text.
     """
-    from ..contracts.product_domain import SLOT_BY_KEY, MAX_CLARIFY_ROUNDS
-
     if state.error:
         state.final_response = f"抱歉，系统遇到了一些问题：{state.error}\n请稍后重试或联系客服。"
         state.current_node = "response"
         state.steps_done.append("response")
         return state
 
-    # ── P3: 3-way UI decision ──
+    # ── P2: 2-way UI decision ──
 
-    if state.missing_fields and state.clarify_round < MAX_CLARIFY_ROUNDS:
-        # Branch 1: CLARIFY — ask a question
-        first_missing = state.missing_fields[0]
-        slot_def = SLOT_BY_KEY.get(first_missing)
-        if slot_def:
-            state.final_response = slot_def.question
-            state.current_node = "response"
-            state.steps_done.append("response")
-            state.ui_message = f"需要确认: {slot_def.label}"
-            state.tool_results["_clarify"] = {
-                "slot_key": slot_def.key,
-                "question": slot_def.question,
-                "options": slot_def.options,
-            }
-            return state
-        # slot_def not found — skip to next missing field or fall through
-        state.missing_fields.pop(0)
-
-    elif state.ranked_items or state.tool_results.get("products"):
+    if state.ranked_items or state.tool_results.get("products"):
         # Branch 2: EXPLAIN + PRODUCT — recommendations with rationale
         products = state.tool_results.get("products", [])
         count = len(state.ranked_items) or len(products)

@@ -118,7 +118,7 @@ def entry_router(state: AgentState) -> Command:
         return Command(goto=session_mem.pending_intent, update={
             **base_update,
             "intent": session_mem.pending_intent, "confidence": 1.0,
-            "routing_method": "session", "clarify_round": 1,
+            "routing_method": "session",
             "ui_message": f"继续「{session_mem.pending_intent}」流程…",
         })
 

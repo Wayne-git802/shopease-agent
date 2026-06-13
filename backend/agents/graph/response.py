@@ -162,7 +162,7 @@ def _manage_session(ctx: PipelineContext, state) -> None:
             session_id=session_id,
             pending_intent=state.intent,
             collected_slots=state.parallel_results.get("_collected_slots", {}),
-            missing_slots=state.missing_fields,
+            missing_slots=[],
         )
         put_session_memory(sm)
         cs = build_conversation_state(

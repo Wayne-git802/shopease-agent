@@ -43,7 +43,7 @@ SORT_SEMANTIC_CHECKS: dict[tuple[str, str], list[str]] = {
     ("price", "asc"):  ["便宜", "cheap", "低价", "最便宜", "划算", "实惠", "lowest"],
     ("price", "desc"): ["贵", "expensive", "高价", "最贵", "高端", "旗舰"],
     ("rating", "desc"): ["评分", "评价", "口碑", "rating", "高评", "好评"],
-    ("popularity", "desc"): ["热门", "流行", "畅销", "popular", "trending", "hot", "火"],
+    ("popularity", "desc"): ["热门", "流行", "畅销", "popular", "trending", "hot", "火爆"],
     ("created_at", "desc"): ["最新", "新款", "new", "latest", "最近", "刚上"],
 }
 
