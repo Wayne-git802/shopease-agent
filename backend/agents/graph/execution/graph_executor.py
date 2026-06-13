@@ -200,12 +200,14 @@ def _hydrate_memory(ctx: PipelineContext, plan) -> None:
 
 
 def _parse_constraints(ctx: PipelineContext) -> None:
-    from ..nodes.constraint_parser import parse as parse_constraints
+    # Skip if already built in routing stage (Phase 5)
+    if ctx.state.search_plan is not None:
+        return
+    from ..nodes.search_plan_builder import parse as parse_constraints
     from ..contracts.search_plan import QueryIntent
 
     plan = parse_constraints(ctx.query)
-    ctx.state.parallel_results["_search_plan"] = plan.to_dict()
-    ctx.state.parallel_results["_search_plan_raw"] = plan  # cached for _validate_plan
+    ctx.state.search_plan = plan
     if plan.is_structured():
         ctx.state.parallel_results["query_type"] = "search"
     elif plan.intent == QueryIntent.RECOMMEND:
@@ -230,10 +232,12 @@ def _validate_plan(ctx: PipelineContext) -> None:
     _current_rec_type = ctx.state.parallel_results.get("recommend_type", "")
 
     # Reuse plan from _parse_constraints (avoid double parse)
-    plan = ctx.state.parallel_results.get("_search_plan_raw")
+    plan = ctx.state.search_plan
+    if isinstance(plan, dict):
+        from ..contracts.search_plan import SearchPlan
+        plan = SearchPlan(**plan)
     if plan is None:
-        # Safety fallback — should not happen in normal pipeline
-        from ..nodes.constraint_parser import parse as parse_constraints
+        from ..nodes.search_plan_builder import parse as parse_constraints
         plan = parse_constraints(ctx.query)
 
     validated = validate_plan(
@@ -242,7 +246,7 @@ def _validate_plan(ctx: PipelineContext) -> None:
         user_id=ctx.user_id, has_history=_has_history,
     )
 
-    ctx.state.parallel_results["_search_plan"] = validated.to_dict()
+    ctx.state.search_plan = validated.plan
     if validated.downgraded and ctx.state.parallel_results.get("query_type") == "search":
         ctx.state.parallel_results["query_type"] = "recommend"
 

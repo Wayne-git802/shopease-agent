@@ -157,44 +157,7 @@ class AgentContext:
             session_id=ctx.session_id,
             display_id=ctx.display_id,
             memory=AgentMemory(),
-            reference=_resolve_reference_for_context(ctx),
         )
-
-
-def _resolve_reference_for_context(ctx: "PipelineContext") -> "ReferenceTarget | None":
-    """Resolve product reference from AgentConversation blocks for AgentContext."""
-    if not ctx.session_id:
-        return None
-    try:
-        import django; django.setup()
-        from agents.models import AgentConversation
-        from agents.graph.routing.reference_resolver import (
-            resolve_reference, ReferenceContext, ProductReference,
-        )
-        msg = (AgentConversation.objects
-               .filter(session_id=ctx.session_id, role="assistant")
-               .order_by("-created_at").first())
-        if not msg or not msg.metadata:
-            return None
-        products = []
-        for b in msg.metadata.get("blocks", []):
-            if b.get("type") == "product_card":
-                for p in b.get("data", {}).get("products", []):
-                    products.append(ProductReference(
-                        product_id=p.get("product_id", p.get("id", 0)),
-                        product_name=p.get("name", p.get("product_name", "")),
-                    ))
-                break
-        if not products:
-            return None
-        ref_ctx = ReferenceContext(products=products, last_query=ctx.query)
-        resolved = resolve_reference(ctx.query, ref_ctx)
-        if resolved.target.product_ids:
-            return resolved.target
-        return None
-    except Exception:
-        logger.debug("_resolve_reference_for_context skipped — no DB or blocks", exc_info=True)
-        return None
 
 
 def _new_agent_memory():

@@ -450,7 +450,8 @@ def _build_events(state, signals) -> list[dict]:
         return 0
 
     search_meta = state.tool_results.get("_search_meta", {})
-    search_plan = state.parallel_results.get("_search_plan", {})
+    plan = state.search_plan
+    _strategy = plan.strategy if plan else "semantic"
 
     events = [
         {
@@ -464,12 +465,12 @@ def _build_events(state, signals) -> list[dict]:
         },
         {
             "block": "retrieval",
-            "type": search_plan.get("strategy", "semantic"),
+            "type": _strategy,
             "ms": _node_ms("search") or _node_ms("recommend"),
             "payload": {
-                "strategy": search_plan.get("strategy", "semantic"),
-                "sort_by": search_plan.get("sort_by"),
-                "direction": search_plan.get("direction"),
+                "strategy": _strategy,
+                "sort_by": plan.sort_by if plan else None,
+                "direction": plan.direction if plan else None,
                 "candidates": search_meta.get("candidates", 0),
                 "after_filter": search_meta.get("after_filter", 0),
                 "after_rank": search_meta.get("after_rank", 0),

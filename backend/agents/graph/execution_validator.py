@@ -170,9 +170,17 @@ def _validate_confidence(
     """
     If plan.is_structured() but commerce intent confidence is below
     threshold, downgrade to semantic — structured sort is a strong claim.
+
+    Exception: regex-detected sorts are reliable regardless of commerce
+    confidence.  Low confidence only means "no product-noun keywords found",
+    not "the regex sort pattern is wrong."
     """
     decisions: list[ValidationDecision] = []
     if not plan.is_structured():
+        return plan, decisions
+
+    # Regex sort: bypass confidence gate (same logic as search_strategy_selector Rule 0)
+    if plan.method == "regex":
         return plan, decisions
 
     if commerce_confidence < STRUCTURED_CONFIDENCE_THRESHOLD:
@@ -248,14 +256,22 @@ def _validate_recommend_type(
 # Helpers
 # ═══════════════════════════════════════════════════════════════
 
-def _downgrade_to_semantic(plan: SearchPlan) -> SearchPlan:
+def _downgrade_to_semantic(plan: SearchPlan, _decisions: list | None = None) -> SearchPlan:
     """Return a copy of plan downgraded to semantic strategy."""
     return SearchPlan(
         intent=plan.intent,
         sort_by=None,
         direction=None,
         category_filter=plan.category_filter,
+        category_confidence=plan.category_confidence,
+        brand=plan.brand,
+        compare_brands=plan.compare_brands,
+        budget_lower=plan.budget_lower,
+        budget_upper=plan.budget_upper,
         budget_band=plan.budget_band,
+        recipient=plan.recipient,
+        usage=plan.usage,
+        state=plan.state,
         strategy=RetrievalStrategy.SEMANTIC,
         semantic_query=plan.semantic_query,
         show_clarify_hint=plan.show_clarify_hint,

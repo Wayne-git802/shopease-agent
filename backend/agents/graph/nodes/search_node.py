@@ -1,12 +1,13 @@
 """
-Search Node — P1 strategy-driven hybrid retrieval.
+Search Node — strategy-driven retrieval with tiered fallback.
 
-Upgrades the old binary "structured? → SQL : FAISS" to a 3-strategy system:
-  SQL_ONLY  — Direct SQL ORDER BY for clear sort intents
-  SEMANTIC  — FAISS vector search + RRF fusion
-  HYBRID    — Both paths, unified ranking in search_node (Phase 6: no merge_node)
+Strategies (binary):
+  SQL_ONLY  — SQL ORDER BY; empty results → FAISS fallback (no mixing)
+  SEMANTIC  — FAISS vector search + RRF fusion + constraint relaxation
+  COMPARE   — multi-brand side-by-side search (early return)
 
-Strategy is selected by SearchStrategySelector, not by parser alone.
+HYBRID removed in Phase 5 — merge_node was deleted in Phase 6, leaving
+bare concatenation that diluted sort results.  Replaced by tiered fallback.
 """
 
 import re
@@ -42,6 +43,28 @@ def _build_brand_q(brand: str):
     for cn in cn_keywords:
         q |= Q(name__icontains=cn) | Q(description__icontains=cn)
     return q
+
+
+def _build_sql_ids(brand: str | None = None, category: str | None = None,
+                   budget_lower: float | None = None, budget_upper: float | None = None) -> set[int] | None:
+    """Build a set of product IDs matching structured constraints.
+
+    Returns None if no constraints provided (caller should skip filtering).
+    Used by both main search path and COMPARE mode — single source of truth.
+    """
+    if not any([brand, category, budget_lower is not None, budget_upper is not None]):
+        return None
+    from agents.commerce.queries.product_query import ProductQuery
+    qs = ProductQuery.purchasable()
+    if category:
+        qs = qs.filter(category__name__icontains=category)
+    if brand:
+        qs = qs.filter(_build_brand_q(brand))
+    if budget_lower is not None:
+        qs = qs.filter(price__gte=budget_lower)
+    if budget_upper is not None:
+        qs = qs.filter(price__lte=budget_upper)
+    return set(qs.values_list('id', flat=True)[:200])
 
 
 # ── Regex-based sort detection ─────────────────────────────────
@@ -187,10 +210,11 @@ def _execute_structured_sort(plan: SearchPlan, limit: int = 10) -> list[ProductR
 # ── Main Node ──────────────────────────────────────────────────
 
 def search_node(state: AgentState) -> AgentState:
-    """P1 strategy-driven hybrid retrieval.
+    """Strategy-driven retrieval with tiered fallback.
 
-    Uses SearchStrategySelector to decide SQL_ONLY / SEMANTIC / HYBRID.
-    HYBRID mode produces both structured and semantic results for merge_node.
+    SQL_ONLY  → structured sort; if empty → FAISS fallback (no mixing).
+    SEMANTIC  → FAISS + constraint relaxation.
+    COMPARE   → multi-brand search (early return).
     """
     import django
     django.setup()
@@ -238,47 +262,32 @@ def search_node(state: AgentState) -> AgentState:
     mode = _resolve_mode(state.intent)
     state.parallel_results["_retrieval_mode"] = mode
 
-    # ── Load SearchPlan from orchestrator (ConstraintParser + Validator) ──
-    plan_dict = state.parallel_results.get("_search_plan", {})
-    plan = SearchPlan(
-        intent=plan_dict.get("intent", QueryIntent.RECOMMEND),
-        sort_by=plan_dict.get("sort_by"),
-        direction=plan_dict.get("direction"),
-        category_filter=plan_dict.get("category_filter"),
-        category_confidence=plan_dict.get("category_confidence", 1.0),
-        brand=plan_dict.get("brand"),
-        budget_lower=plan_dict.get("budget_lower"),
-        budget_upper=plan_dict.get("budget_upper"),
-        budget_band=plan_dict.get("budget_band"),
-        strategy=plan_dict.get("strategy", RetrievalStrategy.SEMANTIC),
-        semantic_query=normalized,
-        method=plan_dict.get("method", "regex"),
-        detail=plan_dict.get("detail", ""),
+    # ── SearchPlan — LangGraph checkpoint serialization turns
+    #     the dataclass into a dict. Convert back when needed.
+    plan = state.search_plan
+    if isinstance(plan, dict):
+        plan = SearchPlan(**plan)
+    if plan is None:
+        from ..nodes.search_plan_builder import parse as parse_constraints
+        plan = parse_constraints(query)
+        state.search_plan = plan
+
+    # ── POPULARITY mode: RecommendEngine ──
+    if plan.strategy == RetrievalStrategy.POPULARITY:
+        return _execute_popularity(plan, state)
+
+    # ── COMPARE mode: multi-brand side-by-side search ──────────
+    if plan.strategy == RetrievalStrategy.COMPARE:
+        return _execute_compare(plan, state, query)
+
+    # ── SQL constraint filter ──
+    _category_hard = plan.category_filter and plan.category_confidence >= 0.9
+    sql_ids = _build_sql_ids(
+        brand=plan.brand,
+        category=plan.category_filter if _category_hard else None,
+        budget_lower=plan.budget_lower,
+        budget_upper=plan.budget_upper,
     )
-
-    # ── SQL constraint filter ─────────────────────────────────
-    brand_filter = plan_dict.get("brand")
-    budget_lower = plan_dict.get("budget_lower")
-    budget_upper = plan_dict.get("budget_upper")
-    category_filter = plan_dict.get("category_filter")
-    category_confidence = plan_dict.get("category_confidence", 1.0)
-
-    # Category enters SQL WHERE only when confidence ≥ 0.9 (hard filter).
-    # Below 0.9 → soft boost in ranking instead (set via category_boost later).
-    sql_ids = None
-    _category_hard = category_filter and category_confidence >= 0.9
-    if brand_filter or budget_lower is not None or budget_upper is not None or _category_hard:
-        from agents.commerce.queries.product_query import ProductQuery as _PQ
-        qs = _PQ.purchasable()
-        if _category_hard:
-            qs = qs.filter(category__name__icontains=category_filter)
-        if brand_filter:
-            qs = qs.filter(_build_brand_q(brand_filter))
-        if budget_lower is not None:
-            qs = qs.filter(price__gte=budget_lower)
-        if budget_upper is not None:
-            qs = qs.filter(price__lte=budget_upper)
-        sql_ids = set(qs.values_list('id', flat=True)[:200])
 
     # ── P1: Strategy Selection ───────────────────────────────
     _commerce_conf = state.confidence if state.confidence > 0 else 0.5
@@ -315,36 +324,45 @@ def search_node(state: AgentState) -> AgentState:
     # ── Execute based on strategy ────────────────────────────
     products: list[ProductRef] = []
     docs: list[DocRef] = []
-    structured_products: list[ProductRef] = []
-
     top_k = state.parallel_results.get("search_top_k", 10)
+    retriever = get_retriever()
 
-    # Structured path (SQL_ONLY or HYBRID)
-    if strategy_dec.strategy in (SearchStrategy.SQL_ONLY, SearchStrategy.HYBRID):
-        if plan.is_structured():
-            structured_products = _execute_structured_sort(plan, limit=top_k)
-            # Apply SQL constraint filter to structured results
+    if strategy_dec.strategy == SearchStrategy.SQL_ONLY and plan.is_structured():
+        # ── Tier 1: structured sort ──────────────────────────
+        products = _execute_structured_sort(plan, limit=top_k)
+        if sql_ids is not None:
+            products = [p for p in products if p.id in sql_ids]
+
+        if len(products) < MIN_CANDIDATES:
+            # ── Tier 2: empty → FAISS fallback (no mixing) ──
+            products, docs = retriever.search(
+                enriched_query, top_k=top_k, user_id=state.user_id,
+            )
             if sql_ids is not None:
-                structured_products = [p for p in structured_products if p.id in sql_ids]
+                products = [p for p in products if p.id in sql_ids]
+            if not products:
+                state.parallel_results["_no_results"] = True
 
-    # Semantic path (SEMANTIC or HYBRID)
-    if strategy_dec.strategy in (SearchStrategy.SEMANTIC, SearchStrategy.HYBRID):
-        retriever = get_retriever()
+        # Enrich from DB + ranking
+        products, score_breakdown = _enrich_and_rank(
+            products, plan, state, top_k,
+            skip_diversity=bool(plan.brand) or mode == "exact",
+        )
+        if score_breakdown:
+            state.parallel_results["_score_breakdown"] = score_breakdown
+
+    else:
+        # ── SEMANTIC path ────────────────────────────────────
         products, docs = retriever.search(
             enriched_query,
             top_k=top_k,
             user_id=state.user_id,
         )
         # ── Apply SQL constraint filter ──
-        # When SQL has enough results, use them as primary source.
-        # FAISS∩SQL intersection fails when embeddings are from
-        # different languages (zh query × en product data).
         all_faiss_products = list(products)
         if sql_ids is not None and len(sql_ids) >= MIN_CANDIDATES:
-            # SQL is the primary source — intersect to re-rank, not to filter
             intersected = [p for p in products if p.id in sql_ids]
             if len(intersected) < MIN_CANDIDATES:
-                # FAISS missed most SQL results — use SQL products directly
                 from products.models import Product as _Prod
                 from types import SimpleNamespace
                 sql_pids = list(_Prod.objects.filter(id__in=sql_ids).values_list('id', flat=True)[:50])
@@ -357,49 +375,45 @@ def search_node(state: AgentState) -> AgentState:
 
         # ── Constraint relaxation: hard → soft → none ────────
         relaxed_constraints = []
-        brand_boost: str | None = None       # soft boost: brand to prefer in ranking
-        category_boost: str | None = None     # soft boost: category to prefer in ranking
+        brand_boost: str | None = None
+        category_boost: str | None = None
 
         if len(products) < MIN_CANDIDATES and sql_ids is not None:
-            # Re-fetch with larger window to get more candidates
             products_large, _ = retriever.search(enriched_query, top_k=100, user_id=state.user_id)
             all_faiss_products = list(products_large)
             from agents.commerce.queries.product_query import ProductQuery as _PQ
 
-            # ── Layer 1: brand → soft boost (keep category + price hard) ──
-            if brand_filter and len(products) < MIN_CANDIDATES:
+            if plan.brand and len(products) < MIN_CANDIDATES:
                 qs1 = _PQ.purchasable()
                 if _category_hard:
-                    qs1 = qs1.filter(category__name__icontains=category_filter)
-                if budget_lower is not None:
-                    qs1 = qs1.filter(price__gte=budget_lower)
-                if budget_upper is not None:
-                    qs1 = qs1.filter(price__lte=budget_upper)
+                    qs1 = qs1.filter(category__name__icontains=plan.category_filter)
+                if plan.budget_lower is not None:
+                    qs1 = qs1.filter(price__gte=plan.budget_lower)
+                if plan.budget_upper is not None:
+                    qs1 = qs1.filter(price__lte=plan.budget_upper)
                 relaxed_ids = set(qs1.values_list('id', flat=True)[:200])
                 if relaxed_ids:
                     products = [p for p in all_faiss_products if p.id in relaxed_ids]
                     if products:
-                        brand_boost = brand_filter
-                        relaxed_constraints.append(f"品牌「{brand_filter}」")
+                        brand_boost = plan.brand
+                        relaxed_constraints.append(f"品牌「{plan.brand}」")
 
-            # ── Layer 2: category → soft boost (keep price hard only) ──
             if len(products) < MIN_CANDIDATES and _category_hard:
                 qs2 = _PQ.purchasable()
-                if budget_lower is not None:
-                    qs2 = qs2.filter(price__gte=budget_lower)
-                if budget_upper is not None:
-                    qs2 = qs2.filter(price__lte=budget_upper)
+                if plan.budget_lower is not None:
+                    qs2 = qs2.filter(price__gte=plan.budget_lower)
+                if plan.budget_upper is not None:
+                    qs2 = qs2.filter(price__lte=plan.budget_upper)
                 relaxed_ids = set(qs2.values_list('id', flat=True)[:200])
                 if relaxed_ids:
                     products = [p for p in all_faiss_products if p.id in relaxed_ids]
                     if products:
-                        category_boost = category_filter
-                        relaxed_constraints.append(f"分类「{category_filter}」")
+                        category_boost = plan.category_filter
+                        relaxed_constraints.append(f"分类「{plan.category_filter}」")
 
             if relaxed_constraints:
                 state.parallel_results["_relaxed_constraints"] = relaxed_constraints
 
-            # ── Layer 3: pure FAISS — no SQL constraints ──
             if len(products) < MIN_CANDIDATES:
                 products = [p for p in all_faiss_products]
                 if products:
@@ -409,51 +423,26 @@ def search_node(state: AgentState) -> AgentState:
                     state.parallel_results["_no_results"] = True
 
         # ── Enrich from DB + weighted ranking ──
-        _skip_div = bool(brand_filter and brand_boost is None) or mode == "exact"
+        _skip_div = bool(plan.brand and brand_boost is None) or mode == "exact"
         products, score_breakdown = _enrich_and_rank(
-            products, plan_dict, state, top_k,
+            products, plan, state, top_k,
             skip_diversity=_skip_div,
             brand_boost=brand_boost,
             category_boost=category_boost,
         )
         if score_breakdown:
             state.parallel_results["_score_breakdown"] = score_breakdown
-    elif strategy_dec.strategy == SearchStrategy.SQL_ONLY:
-        products = structured_products
-        docs = []
-        products, score_breakdown = _enrich_and_rank(
-            products, plan_dict, state, top_k,
-            skip_diversity=bool(brand_filter) or mode == "exact",
-        )
-        if score_breakdown:
-            state.parallel_results["_score_breakdown"] = score_breakdown
 
     # ── Store results ────────────────────────────────────────
     state.retrieved_products = products
-
-    # Build DocRef from Product DB fields (Product RAG)
     docs = _build_doc_refs(products)
     state.retrieved_docs = docs
-
-    # For HYBRID: store structured results separately for merge_node
-    if strategy_dec.strategy == SearchStrategy.HYBRID and structured_products:
-        state.parallel_results["_structured_products"] = [
-            {"product_id": p.id, "product_name": p.name, "name": p.name,
-             "price": str(p.price), "category_name": p.category,
-             "score": p.relevance}
-            for p in structured_products
-        ]
-
-    # Build product dicts for UI (merge both in HYBRID mode)
-    all_products = list(products)
-    if strategy_dec.strategy == SearchStrategy.HYBRID:
-        all_products = list(structured_products) + list(products)
 
     state.tool_results["products"] = [
         {"product_id": p.id, "product_name": p.name, "name": p.name,
          "price": str(p.price), "category_name": p.category,
          "score": p.relevance}
-        for p in all_products
+        for p in products
     ]
     state.current_node = "search"
 
@@ -465,10 +454,6 @@ def search_node(state: AgentState) -> AgentState:
             f"已识别排序意图（{method_label}），"
             f"按 {plan.sort_by} {plan.direction.upper()} 排序{budget_info}"
         )
-    elif strategy_dec.strategy == SearchStrategy.HYBRID:
-        state.ui_message = (
-            f"混合检索：SQL排序({len(structured_products)}条) + 语义({len(products)}条)"
-        )
     else:
         state.ui_message = f"正在搜索：{query}"
 
@@ -476,9 +461,6 @@ def search_node(state: AgentState) -> AgentState:
 
     # ── Trace metadata ───────────────────────────────────────
     phase = plan.to_phase()
-    if strategy_dec.strategy == SearchStrategy.HYBRID:
-        phase = {"phase": "searching", "label": "混合检索",
-                 "detail": "SQL + FAISS → merge_node融合"}
     state.parallel_results["_search_phase_detail"] = phase.get("detail", "")
     state.parallel_results["_search_phase_label"] = phase.get("label", "")
 
@@ -533,7 +515,7 @@ def _build_doc_refs(products: list[ProductRef]) -> list[DocRef]:
     return docs
 
 
-def _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=False,
+def _enrich_and_rank(products, plan, state, top_k, skip_diversity=False,
                      brand_boost=None, category_boost=None):
     """Enrich FAISS results with DB data, rank, convert to ProductRef."""
     if not products:
@@ -550,7 +532,7 @@ def _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=False,
     if not enriched:
         return products, None
     enriched, score_breakdown = _rank_products(
-        enriched, plan_dict, top_k, skip_diversity,
+        enriched, plan, top_k, skip_diversity,
         brand_boost=brand_boost, category_boost=category_boost,
     )
     products = [
@@ -564,7 +546,7 @@ def _enrich_and_rank(products, plan_dict, state, top_k, skip_diversity=False,
     return products, score_breakdown
 
 
-def _rank_products(products, search_plan: dict, top_k: int = 10, skip_diversity: bool = False,
+def _rank_products(products, plan, top_k: int = 10, skip_diversity: bool = False,
                    brand_boost: str = None, category_boost: str = None):
     """Weighted ranking: embedding (0.40) + price_fit (0.25) + rating (0.20) + sentiment (0.15).
 
@@ -587,8 +569,8 @@ def _rank_products(products, search_plan: dict, top_k: int = 10, skip_diversity:
     if not products:
         return [], []
 
-    budget_upper = search_plan.get("budget_upper")
-    budget_lower = search_plan.get("budget_lower")
+    budget_upper = plan.budget_upper
+    budget_lower = plan.budget_lower
 
     ranked = []
     for p in products:
@@ -667,6 +649,118 @@ def _rank_products(products, search_plan: dict, top_k: int = 10, skip_diversity:
         [r[0] for r in top_ranked],
         [{"product_id": r[0].id, "total": round(r[1], 3), "components": r[2]} for r in top_ranked],
     )
+
+
+# ── Compare Mode ────────────────────────────────────────────────
+
+
+def _execute_compare(plan: SearchPlan, state: AgentState, query: str) -> AgentState:
+    """Multi-brand comparison: search each brand separately, merge results."""
+    import django as _dj
+    _dj.setup()
+    from products.models import Product
+    from agents.commerce.queries.product_query import ProductQuery
+
+    brands = plan.compare_brands
+    if not brands:
+        state.parallel_results["_compare_fallback"] = True
+        state.current_node = "search"
+        state.steps_done.append("search")
+        return state
+
+    start = time.time()
+    retriever = get_retriever()
+    all_results: list[dict] = []
+    empty_brands: list[str] = []
+
+    for brand in brands:
+        sql_ids = _build_sql_ids(brand=brand, category=plan.category_filter)
+        products, _docs = retriever.search(f"{brand} {plan.category_filter or ''}", top_k=10)
+        if sql_ids is not None:
+            # Always apply SQL filter — empty set means "0 matching products"
+            products = [p for p in products if p.id in sql_ids]
+
+        if not products:
+            empty_brands.append(brand)
+            continue
+
+        for p in products[:3]:
+            all_results.append({
+                "product_id": p.id,
+                "product_name": p.name,
+                "name": p.name,
+                "price": str(p.price),
+                "category_name": p.category,
+                "score": p.relevance,
+                "compare_brand": brand,
+            })
+
+    state.parallel_results["_compare_empty_brands"] = empty_brands
+
+    # Deduplicate by product_id (keep first)
+    seen: set[int] = set()
+    unique: list[dict] = []
+    for item in all_results:
+        if item["product_id"] not in seen:
+            seen.add(item["product_id"])
+            unique.append(item)
+
+    state.tool_results["products"] = unique
+    state.retrieved_products = []
+    state.current_node = "search"
+    state.steps_done.append("search")
+    state.parallel_results["_compare_brands"] = brands
+    state.parallel_results["_search_phase_label"] = "商品对比"
+    state.parallel_results["_search_phase_detail"] = f"对比 {', '.join(brands)}"
+    state.ui_message = f"已找到 {len(brands)} 个品牌的商品（共 {len(unique)} 款）"
+
+    latency = int((time.time() - start) * 1000)
+    state.trace.append(NodeTrace(
+        node_name="search",
+        model_name="paraphrase-multilingual-MiniLM-L12-v2",
+        latency_ms=latency,
+    ))
+    return state
+
+
+def _execute_popularity(plan: SearchPlan, state: AgentState) -> AgentState:
+    """Popularity-ranked recommendations via RecommendEngine."""
+    import django as _dj
+    _dj.setup()
+    from agents.commerce.engine import RecommendEngine
+
+    start = time.time()
+    engine = RecommendEngine()
+
+    try:
+        products = engine.get_popular(limit=10)
+    except Exception:
+        logger.warning("RecommendEngine.get_popular failed", exc_info=True)
+        products = []
+
+    if not products:
+        state.parallel_results["_no_results"] = True
+        state.tool_results["products"] = []
+        state.retrieved_products = []
+        state.current_node = "search"
+        state.steps_done.append("search")
+        return state
+
+    state.tool_results["products"] = products
+    state.current_node = "search"
+    state.steps_done.append("search")
+    state.parallel_results["_search_phase_label"] = "热门推荐"
+    state.parallel_results["_search_phase_detail"] = "RecommendEngine.get_popular"
+    state.ui_message = f"为你推荐 {len(products)} 款热门商品"
+
+    latency = int((time.time() - start) * 1000)
+    state.trace.append(NodeTrace(
+        node_name="search",
+        model_name="recommend-engine",
+        latency_ms=latency,
+    ))
+    return state
+
 
 
 # ── Retrieval Mode ──────────────────────────────────────────────

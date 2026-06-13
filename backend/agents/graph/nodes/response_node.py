@@ -25,6 +25,39 @@ def response_node(state: AgentState) -> AgentState:
 
     # ── P2: 2-way UI decision ──
 
+    # Branch 1: COMPARE — side-by-side comparison
+    if state.parallel_results.get("_compare_brands"):
+        products = state.tool_results.get("products", [])
+        brands = state.parallel_results.get("_compare_brands", [])
+        empty = state.parallel_results.get("_compare_empty_brands", [])
+        found = [b for b in brands if b not in empty]
+
+        # All empty → simple message, no product card
+        if not found:
+            state.final_response = f"未找到 {' 和 '.join(brands)} 的相关商品"
+            state.ui_message = state.final_response
+            state.tool_results["products"] = []
+            state.retrieved_products = []
+            state.current_node = "response"
+            state.steps_done.append("response")
+            return state
+
+        # Has results → show found, note missing
+        parts = []
+        for brand in brands:
+            brand_products = [p for p in products if p.get("compare_brand") == brand]
+            if brand_products:
+                parts.append(f"**{brand}**：")
+                for p in brand_products[:3]:
+                    parts.append(f"  • {p.get('product_name', p.get('name', ''))} — ¥{p.get('price', '?')}")
+            else:
+                parts.append(f"未找到 {brand} 的相关商品，")
+        state.final_response = "\n".join(parts)
+        state.ui_message = f"已对比 {len(found)} 个品牌"
+        state.current_node = "response"
+        state.steps_done.append("response")
+        return state
+
     if state.ranked_items or state.tool_results.get("products"):
         # Branch 2: EXPLAIN + PRODUCT — recommendations with rationale
         products = state.tool_results.get("products", [])

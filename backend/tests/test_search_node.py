@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from agents.graph.state import AgentState, ProductRef
+from agents.graph.contracts.search_plan import SearchPlan
 from agents.graph.nodes.search_node import (
     _build_brand_q,
     _rank_products,
@@ -60,14 +61,14 @@ class TestRankProducts:
     """Weighted ranking with soft boosts."""
 
     def test_empty_products(self):
-        ranked, breakdown = _rank_products([], {}, top_k=10)
+        ranked, breakdown = _rank_products([], SearchPlan(), top_k=10)
         assert ranked == []
         assert breakdown == []
 
     def test_basic_ranking(self):
         p1 = _make_mock_product(1, relevance=0.8, brand="华为", category_name="智能手机", price=3000)
         p2 = _make_mock_product(2, relevance=0.6, brand="小米", category_name="智能手机", price=2000)
-        ranked, breakdown = _rank_products([p1, p2], {}, top_k=10)
+        ranked, breakdown = _rank_products([p1, p2], SearchPlan(), top_k=10)
         assert len(ranked) == 2
         assert ranked[0].id == 1  # higher relevance → first
 
@@ -76,7 +77,7 @@ class TestRankProducts:
         huawei = _make_mock_product(1, relevance=0.5, brand="华为", category_name="智能手机", price=3000)
         xiaomi = _make_mock_product(2, relevance=0.5, brand="小米", category_name="智能手机", price=2000)
         ranked, breakdown = _rank_products(
-            [huawei, xiaomi], {}, top_k=10, brand_boost="华为",
+            [huawei, xiaomi], SearchPlan(), top_k=10, brand_boost="华为",
         )
         # 华为 should rank above 小米 despite same base relevance
         assert ranked[0].id == 1
@@ -88,7 +89,7 @@ class TestRankProducts:
     def test_brand_boost_case_insensitive(self):
         """brand_boost should match case-insensitively."""
         p = _make_mock_product(1, relevance=0.5, brand="HUAWEI", category_name="智能手机")
-        ranked, breakdown = _rank_products([p], {}, top_k=10, brand_boost="huawei")
+        ranked, breakdown = _rank_products([p], SearchPlan(), top_k=10, brand_boost="huawei")
         assert len(ranked) == 1
         # Should still match (lowercase check)
         assert breakdown[0]["total"] > 0.5  # base + boost
@@ -98,7 +99,7 @@ class TestRankProducts:
         phone = _make_mock_product(1, relevance=0.5, category_name="智能手机")
         headphone = _make_mock_product(2, relevance=0.5, category_name="耳机")
         ranked, breakdown = _rank_products(
-            [phone, headphone], {}, top_k=10, category_boost="智能手机",
+            [phone, headphone], SearchPlan(), top_k=10, category_boost="智能手机",
         )
         assert ranked[0].id == 1  # phone ranked higher
 
@@ -106,7 +107,7 @@ class TestRankProducts:
         """brand_boost with no matching products → no effect on ranking."""
         p1 = _make_mock_product(1, relevance=0.7, brand="苹果")
         p2 = _make_mock_product(2, relevance=0.5, brand="三星")
-        ranked, _ = _rank_products([p1, p2], {}, top_k=10, brand_boost="华为")
+        ranked, _ = _rank_products([p1, p2], SearchPlan(), top_k=10, brand_boost="华为")
         assert ranked[0].id == 1  # still by relevance
 
     def test_skip_diversity_allows_same_brand(self):
@@ -115,7 +116,7 @@ class TestRankProducts:
             _make_mock_product(i, relevance=0.5, brand="华为", category_name="智能手机")
             for i in range(1, 11)
         ]
-        ranked, _ = _rank_products(products, {}, top_k=10, skip_diversity=True)
+        ranked, _ = _rank_products(products, SearchPlan(), top_k=10, skip_diversity=True)
         assert len(ranked) == 10  # all pass through
 
     def test_diversity_penalizes_3rd_same_brand(self):
@@ -124,13 +125,13 @@ class TestRankProducts:
             _make_mock_product(i, relevance=0.9 - i * 0.01, brand="华为", category_name="智能手机")
             for i in range(1, 11)
         ]
-        ranked, _ = _rank_products(products, {}, top_k=10, skip_diversity=False)
+        ranked, _ = _rank_products(products, SearchPlan(), top_k=10, skip_diversity=False)
         # All still returned, but some penalized — at least 2 are there
         assert len(ranked) >= 2
 
     def test_price_fit_with_budget(self):
         """Budget-aware ranking: closer to budget mid → higher price_fit."""
-        plan = {"budget_lower": 500, "budget_upper": 1500}
+        plan = SearchPlan(budget_lower=500, budget_upper=1500)
         p_close = _make_mock_product(1, relevance=0.5, price=1000)   # mid = 1000
         p_far = _make_mock_product(2, relevance=0.5, price=100)     # far from mid
         ranked, _ = _rank_products([p_close, p_far], plan, top_k=10)
@@ -139,7 +140,7 @@ class TestRankProducts:
     def test_brand_boost_none_safe(self):
         """brand_boost=None should not crash."""
         p = _make_mock_product(1, relevance=0.5)
-        ranked, _ = _rank_products([p], {}, top_k=10, brand_boost=None, category_boost=None)
+        ranked, _ = _rank_products([p], SearchPlan(), top_k=10, brand_boost=None, category_boost=None)
         assert len(ranked) == 1
 
 
@@ -149,19 +150,20 @@ class TestRankProducts:
 
 def _make_state(query: str, intent: str = "search", **extra) -> AgentState:
     """Build a minimal AgentState for search_node tests."""
-    plan = {
-        "intent": intent,
-        "strategy": "semantic",
-        "method": "regex",
-        "detail": "",
-    }
-    plan.update(extra)
+    plan = SearchPlan(
+        intent=intent,
+        strategy="semantic",
+        method="regex",
+    )
+    for k, v in extra.items():
+        if hasattr(plan, k):
+            setattr(plan, k, v)
     return AgentState(
         user_query=query,
         session_id="test_session_search",
         intent=intent,
         confidence=0.7,
-        parallel_results={"_search_plan": plan},
+        search_plan=plan,
     )
 
 

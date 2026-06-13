@@ -112,9 +112,7 @@ class ParallelResults(BaseModel):
             return remapped
         return data
 
-    # ── Search plan ──
-    search_plan: dict = Field(default_factory=dict)
-    search_plan_raw: Any = None
+    # ── Search phase trace (plan object is AgentState.search_plan) ──
     search_phase_detail: str = ""
     search_phase_label: str = ""
 
@@ -204,6 +202,9 @@ class AgentState(BaseModel):
 
     # Long-term memory
     user_memory: UserMemory | None = None
+
+    # Constraint plan (Phase 5 — first-class, no dict roundtrip)
+    search_plan: Any = None
 
     # Execution
     current_node: str = ""

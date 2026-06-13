@@ -191,7 +191,7 @@ def build_handoff() -> dict:
     to the PurchaseAgent for checkout flow.
     """
     return {
-        "_handoff": "purchase",
+        "_checkout": True,
         "intent": "cart",
         "agent_type": "cart",
         "reply": "",
@@ -428,7 +428,7 @@ class CartAgent:
         result = _run(ctx.query, ctx.user_id, ctx.session_id, ctx.display_id)
 
         # Handoff to Purchase — explicit condition
-        if result.get("_handoff") == "purchase" or result.get("status") == "handoff":
+        if result.get("_checkout") or result.get("status") == "handoff":
             # Share cart snapshot with PurchaseAgent via SharedView
             items = _extract_cart_items(result)
             ctx.memory.set_shared_view(ctx.session_id, cart_snapshot=items)

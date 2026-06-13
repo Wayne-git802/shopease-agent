@@ -14,8 +14,6 @@ from __future__ import annotations
 import logging
 from uuid import uuid4
 
-from agents.graph.legacy_reference_resolver import LegacyResolvedReference as ResolvedReference
-
 from . import workflow_store
 from . import confirmation_gate
 from . import repository
@@ -59,30 +57,15 @@ def _run(
     if parsed.intent == PurchaseIntent.OTHER:
         return {"_fallback": True}
 
-    # 4. Resolve product reference — prefer execution layer's product_id
-    if product_id is not None:
-        ref = ResolvedReference(
-            source="execution",
-            product_id=product_id,
-            confidence=0.95,
-        )
-    else:
-        from agents.graph.legacy_reference_resolver import resolve as resolve_ref
-        ref = resolve_ref(
-            session_id=session_id,
-            display_id=display_id,
-            query=query,
-            reference_type=parsed.reference_type or "",
-            reference_value=parsed.reference_value,
-        )
-    if not ref.source or not ref.product_id:
+    # 4. Resolve product reference — from execution layer's product_id
+    if product_id is None:
         return build_error("请先搜索或浏览商品，然后告诉我买第几个")
 
     # 5. Validate transition
     validate_transition(state.current_step, PurchaseStep.VIEWING)
 
     # 6. Get product + snapshot
-    product = repository.get_product(ref.product_id)
+    product = repository.get_product(product_id)
     if not product:
         return build_error("商品不存在或已下架")
     if product["stock"] <= 0:
@@ -91,21 +74,21 @@ def _run(
     # 7. Generate confirmation token
     token_dict = confirmation_gate.generate_token(
         state.workflow_id,
-        ref.product_id,
+        product_id,
         "purchase",
         {"price": product["price"], "stock": product["stock"]},
     )
 
     # 8. Update state to CONFIRMING
     state.current_step = PurchaseStep.CONFIRMING
-    state.selected_product_id = ref.product_id
+    state.selected_product_id = product_id
     state.confirm_token = token_dict["token"]
     state.confirm_expires_at = token_dict["expires_at"]
     state.snapshot_hash = token_dict["snapshot_hash"]
     workflow_store.save(session_id, state)
 
     # 9. Show confirmation
-    return build_confirm(ref.product_id, product["name"], product["price"])
+    return build_confirm(product_id, product["name"], product["price"])
 
 
 def handle_confirm(

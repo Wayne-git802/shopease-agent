@@ -13,7 +13,7 @@ v2 changes: added intent / budget_band / category_filter / hint flags.
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Optional, Literal
+from typing import Optional
 
 
 # ── Valid sort fields (schema constraint) ──────────────────────
@@ -34,7 +34,9 @@ VALID_DIRECTIONS = {"asc", "desc"}
 class RetrievalStrategy:
     STRUCTURED_SORT = "structured_sort"   # SQL ORDER BY
     SEMANTIC = "semantic"                 # FAISS + RRF
-    HYBRID = "hybrid"                     # both + merge
+    COMPARE = "compare"                   # multi-product side-by-side
+    TOP_K = "top_k"                       # extreme-value sort (最贵/最便宜)
+    POPULARITY = "popularity"             # popularity-ranked (最火/热门)
 
 
 # ── Intent taxonomy (v2) ───────────────────────────────────────
@@ -130,6 +132,11 @@ RECOMMEND_TRIGGERS: list[str] = [
     r"买什么", r"选.*哪个", r"哪个.*好", r"适合",
 ]
 
+# Compare-trigger keywords (if present → strategy=COMPARE)
+COMPARE_TRIGGERS: list[str] = [
+    r"对比", r"比较", r"vs\b", r"和.*(?:哪个好|哪个更好|选哪个|区别)",
+]
+
 
 # ── Query normalization ────────────────────────────────────────
 
@@ -190,6 +197,7 @@ class SearchPlan:
     direction: Optional[str] = None        # "asc" | "desc"
     category_filter: Optional[str] = None  # e.g. "headphones" — direct SQL WHERE
     brand: Optional[str] = None            # brand filter (Apple/Huawei/etc)
+    compare_brands: list[str] = field(default_factory=list)  # brands to compare (COMPARE mode)
     budget_lower: Optional[float] = None   # price lower bound (actual numeric)
     budget_upper: Optional[float] = None   # price upper bound (actual numeric)
 
@@ -197,6 +205,11 @@ class SearchPlan:
     # ≥ 0.9 → hard SQL WHERE filter
     # < 0.9 → soft boost in ranking (不进 SQL, 作为 _rank_products 加分项)
     category_confidence: float = 1.0
+
+    # ── Grounding (from grounding.py) ──
+    recipient: Optional[str] = None          # 送女友 / 送爸妈 / ...
+    usage: Optional[str] = None              # 学习 / 游戏 / 通勤 / ...
+    state: str = "grounded"                  # grounded / under_constrained
 
     # ── Soft constraint (consumed by ranking phase) ──
     budget_band: Optional[str] = None      # "0-500" | "500-1500" | "1500+" | None
@@ -240,24 +253,35 @@ class SearchPlan:
             "direction": self.direction,
             "category_filter": self.category_filter,
             "brand": self.brand,
+            "compare_brands": self.compare_brands,
             "budget_lower": self.budget_lower,
             "budget_upper": self.budget_upper,
             "budget_band": self.budget_band,
             "category_confidence": self.category_confidence,
+            "recipient": self.recipient,
+            "usage": self.usage,
+            "state": self.state,
             "show_clarify_hint": self.show_clarify_hint,
             "show_budget_hint": self.show_budget_hint,
+            "semantic_query": self.semantic_query,
             "method": self.method,
             "detail": self.detail,
         }
 
     def to_phase(self) -> dict:
         """Render as a trace phase for SessionTrace / Decision Cards."""
-        if self.is_structured():
+        if self.strategy == RetrievalStrategy.COMPARE:
+            detail = f"对比模式: {self.semantic_query}"
+            label = "商品对比"
+        elif self.strategy == RetrievalStrategy.POPULARITY:
+            detail = f"热度排序: {self.semantic_query}"
+            label = "热门推荐"
+        elif self.strategy == RetrievalStrategy.TOP_K:
+            detail = f"极值排序: {self.sort_by} {self.direction}"
+            label = f"Top-K检索 ({self.sort_by})"
+        elif self.is_structured():
             detail = f"SQL ORDER BY {self.sort_by} {self.direction.upper()} LIMIT 10"
             label = f"SQL排序检索 ({self.sort_by} {self.direction})"
-        elif self.strategy == RetrievalStrategy.HYBRID:
-            detail = "FAISS向量 + SQL LIKE → RRF融合"
-            label = "混合检索"
         else:
             detail = f"FAISS语义检索: {self.semantic_query}"
             label = "语义向量检索"

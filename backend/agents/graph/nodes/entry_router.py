@@ -93,10 +93,22 @@ def entry_router(state: AgentState) -> Command:
             "ui_message": f"匹配到「{preset}」意图（路由预设）",
         })
 
+    # ── Path 1.5: Under-constrained → clarify ──
+    from ..contracts.search_plan import SearchPlan
+    plan = state.search_plan
+    if isinstance(plan, dict):
+        plan = SearchPlan(**plan)
+    if plan is not None and plan.state == "under_constrained":
+        return Command(goto="chat", update={
+            **base_update,
+            "intent": "chat", "confidence": 0.5,
+            "routing_method": "under_constrained",
+            "ui_message": "能再说得具体一点吗？",
+        })
+
     # ── Path 2: ConstraintParser ──
-    search_plan = state.parallel_results.get("_search_plan")
-    if search_plan:
-        intent = search_plan.get("intent", "chat")
+    if plan is not None:
+        intent = plan.intent
         if intent != "ambiguous":
             goto = _CONSTRAINT_NODE_MAP.get(intent, intent)
             if goto not in VALID_INTENTS:

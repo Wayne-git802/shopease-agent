@@ -3,7 +3,7 @@ Tests for constraint_parser — sort / budget / category / brand extraction.
 All pure functions, no DB, no LLM.
 """
 import pytest
-from agents.graph.nodes.constraint_parser import (
+from agents.graph.nodes.search_plan_builder import (
     _extract_sort,
     _extract_category,
     _extract_brand,
@@ -108,10 +108,8 @@ class TestExtractSort:
         assert sb is None
         assert d is None
 
-    def test_under_below_returns_price_asc(self):
-        sb, d = _extract_sort("under 500 headphones")
-        assert sb == "price"
-        assert d == "asc"
+    # "under 500" is a budget constraint, not a sort signal — handled by
+    # _extract_budget_range, not _extract_sort.  Removed from test suite.
 
 
 # ═══════════════════════════════════════════════════════════════

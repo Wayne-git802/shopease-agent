@@ -57,25 +57,8 @@ class TestClassifier:
         assert 0.0 <= _COMMERCE_CONFIDENCE_THRESHOLD <= 1.0
 
 
-class TestGroundingGate:
-
-    def test_check_importable(self):
-        from agents.graph.routing.grounding_gate import check
-        assert callable(check)
-
-    def test_skips_non_search_intent(self):
-        from agents.graph.routing.grounding_gate import check
-        from agents.graph.pipeline import PipelineContext
-        ctx = PipelineContext(query="hello")
-        ctx.commerce_result = MagicMock(intent="chat", confidence=0.5)
-        assert check(ctx) is None
-
-    def test_skips_no_commerce_result(self):
-        from agents.graph.routing.grounding_gate import check
-        from agents.graph.pipeline import PipelineContext
-        ctx = PipelineContext(query="hello")
-        ctx.commerce_result = None
-        assert check(ctx) is None
+# TestGroundingGate removed: grounding_gate.py deleted in Phase 5.
+# Clarify logic now lives in routing._build_and_check().
 
 
 class TestRoutingInit:

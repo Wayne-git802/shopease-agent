@@ -321,24 +321,6 @@ def route(query: str, session: object | None = None) -> RouteDecision:
     # ── Layer 3: Policy Engine (execution + cost) ──
     execution_hint, needs_llm, needs_db, needs_commerce = _plan_execution(raw_intent, control_context)
 
-    # ── Commerce domain gate ──
-    # Commerce detected → ALWAYS enter commerce execution graph.
-    # Never downgrade to chat — even low-confidence commerce queries
-    # must search the database, not hallucinate via bare LLM.
-    # execution_hint controls depth: full_graph for high confidence,
-    # graph_light for low confidence — but BOTH go through search_node.
-    if raw_intent == "commerce":
-        from .commerce_intent import classify as classify_commerce, CONFIDENCE_CONFIG
-        commerce_result = classify_commerce(query)
-        confidence = commerce_result.confidence
-        if confidence < CONFIDENCE_CONFIG["low_confidence"]:
-            execution_hint = "full_graph"  # still graph, but entry_router handles fallback
-        else:
-            execution_hint = "full_graph"
-        needs_llm = True
-        needs_db = True
-        needs_commerce = True
-
     # ── Build reason ──
     reason = _INTENT_LABELS.get(raw_intent,
                                f"未知意图「{raw_intent}」— 降级到闲聊")
